@@ -7,6 +7,7 @@ function layout({ title, user, body, wide = false }) {
   const nav = user ? `
     <nav class="top">
       <a href="/">${user.role === 'co' ? 'Daily logs' : 'Projects'}</a>
+      ${['owner', 'admin', 'reviewer'].includes(user.role) ? '<a href="/reviews">Reports</a><a href="/owners">Owners</a>' : ''}
       ${['owner', 'admin'].includes(user.role) ? '<a href="/users">Users</a>' : ''}
       <span class="who">${esc(user.name)}</span>
       <form method="post" action="/logout"><button class="link">Sign out</button></form>
@@ -72,7 +73,10 @@ function homePage({ user, projects }) {
     <div class="card">
       <div class="head"><h1>Projects</h1>${canSetup(user) ? '<a class="btn sm" href="/projects/new">New project</a>' : ''}</div>
       <table><thead><tr><th>Project</th><th>WO</th><th>Name</th><th>Client</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
-    </div>` });
+    </div>
+    ${['owner', 'admin', 'reviewer'].includes(user.role) ? `<div class="card"><h2>Export data</h2>
+      <p class="mute">Every daily log and day-by-day quantity on every project, as spreadsheets for Excel or Power BI.</p>
+      <a class="btn sm sec" href="/export/daily-logs.csv">Daily logs (CSV)</a> <a class="btn sm sec" href="/export/quantities.csv">Daily quantities (CSV)</a></div>` : ''}` });
 }
 
 // What a construction observer sees after signing in: their active jobs,
@@ -176,16 +180,20 @@ function totalsTable(totals, hasCurb = true) {
     : '<p class="mute">No design loaded yet.</p>';
 }
 
-function projectPage({ user, project: p, totals, mapsKey }) {
+function projectPage({ user, project: p, totals, mapsKey, owners = [] }) {
   return layout({ title: p.name, user, wide: true, body: `
     <div class="card">
       <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">Project ${esc(p.job_no)} · WO ${esc(p.wo_no || '—')}${p.client ? ' · ' + esc(p.client) : ''}${p.latitude != null ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${Number(p.latitude)},${Number(p.longitude)}" target="_blank" rel="noopener">${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}</a>` : ''}</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">${totals.lines.length ? `<a class="btn sm" href="/projects/${p.id}/log">Daily log</a>` : ''}
       ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div></div>
+      ${canSetup(user) ? `<form method="post" action="/projects/${p.id}/owner" class="inline" style="margin-top:12px">
+        <span class="mute">Owner (gets the weekly email)</span>
+        <select name="owner_id"><option value="">— none —</option>${owners.map((o) => `<option value="${o.id}" ${o.id === p.owner_id ? 'selected' : ''}>${esc(o.name)}${o.company ? ' – ' + esc(o.company) : ''}</option>`).join('')}</select>
+        <button class="btn sm sec">Save</button> <a class="mute" href="/owners">Manage owners</a> · <a class="mute" href="/export/quantities.csv?project=${p.id}">Export quantities</a></form>` : ''}
     </div>
     <div class="cols">
       <div class="card"><h2>Design quantities</h2>${totalsTable(totals, !!p.has_curb)}</div>
-      <div class="card grow"><h2>Plan</h2><div class="planwrap"><div id="plan" class="planbox" data-project="${p.id}"></div><button class="btn finishfab" id="finishBtn" type="button" hidden>Finish area</button></div></div>
+      <div class="card grow"><h2>Plan</h2><div id="plan" class="planbox" data-project="${p.id}"></div></div>
     </div>
     ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script>
     <script>AABPlan.mount(document.getElementById('plan'));</script>` });

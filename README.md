@@ -38,6 +38,25 @@ Runs at **https://cm.aabeng.com** on the GoDaddy cPanel account, as a cPanel Nod
 ### Limits of clearing
 On the design setup page (step 3), pick the DXF layer with the limits of clearing. Closed polylines are used; pieces drawn end to end are joined. Save it with the design, or with **Save clearing limits only**, which also works after field logging has started (the setup page still loads the DXF for this). The phone shows the limits dashed, cuts clearing to them, and shows the percent of the limits cleared.
 
+## Release 1, step 4 (weekly reports)
+
+- **Sunday evening** a cPanel cron job calls `/cron/weekly`. From Sunday 6 PM Central it builds the reports for the Mon–Sat week that just ended (one per active project with logs) and emails every reviewer (Joe) a summary, the draft PDFs, and a link to **Reports** to review them. It runs hourly and only acts once; a missed run catches up on the next one.
+- **Review**: Joe opens each PDF, adds optional notes for the owner, and approves. Approving freezes the PDF and locks that week's logs (Joe can reopen until it's sent).
+- **Owners**: each project has an owner (client contact with one or more emails). When every report for an owner that week is approved, the owner gets **one email** with a short summary of the work on all of their projects and each report attached. Joe is copied and replies go to him.
+- **The PDF**: progress table (design, this week, to date, % complete), Joe's notes, daily log, a progress exhibit (this week solid, earlier faded, remaining gray; clearing cut to the limits; earthwork areas this week), and the week's photos.
+- **Data for analytics**: everything lives in the `cm` MySQL database. Home page → **Export data** downloads every daily log and every day-by-day quantity (one row per project, day and item) as CSV for Excel or Power BI.
+
+### Step 4 settings
+| Variable | Value |
+|---|---|
+| `CRON_KEY` | a long random string; also goes in the cron job's URL |
+| `SMTP_HOST`, `SMTP_PORT` | the mail server for reports@aabeng.com (587 = STARTTLS, 465 = SSL) |
+| `SMTP_USER`, `SMTP_PASS` | reports@aabeng.com and its password |
+| `MAIL_FROM` | reports@aabeng.com (defaults to `SMTP_USER`) |
+| `PUBLIC_URL` | https://cm.aabeng.com (default) |
+
+cPanel → **Cron Jobs**, every hour: `curl -s "https://cm.aabeng.com/cron/weekly?key=YOUR_CRON_KEY" > /dev/null`
+
 ## Maps
 
 - Drawings are assumed to be Oklahoma state plane, NAD83, US survey feet (North zone by default, South selectable in design setup). Converted with proj4.

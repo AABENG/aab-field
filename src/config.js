@@ -21,5 +21,11 @@ module.exports = {
   // without it the map picker and satellite layer are hidden.
   mapsKey: env.GOOGLE_MAPS_KEY || '',
   // Photos live outside the code folder so a Git update never touches them.
+  // Address used in emailed links.
+  publicUrl: (env.PUBLIC_URL || 'https://cm.aabeng.com').replace(/\/$/, ''),
+  // Secret in the Sunday cPanel cron job's URL that builds last week's reports.
+  cronKey: env.CRON_KEY || '',
+  // Approved report PDFs are kept here (inside the uploads folder by default).
+  reportDir: env.REPORT_DIR || '',
   uploadDir: env.UPLOAD_DIR || require('path').resolve(__dirname, '..', '..', 'aab-field-uploads'),
 };

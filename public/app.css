@@ -160,3 +160,9 @@ textarea{display:block;width:100%;margin-top:6px;border:1px solid var(--line2);b
 .finishfab{position:absolute;left:10px;top:10px;z-index:3;padding:10px 16px;box-shadow:0 0 18px var(--glow)}
 .btn.ghost{background:transparent;border:1px solid var(--line2);color:var(--ink);box-shadow:none}
 #setupUI.locked .designonly{display:none!important}
+.notice{border:1px solid var(--ok);color:var(--ok);border-radius:8px;padding:8px 12px}
+.rrow{border-top:1px solid var(--line);padding:12px 0}
+.rrow .rhead{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.rrow .rhead .btn{margin-left:auto}
+.sumlist{margin:6px 0 8px;padding-left:18px;color:var(--mute);font-size:13.5px}
+.rrow textarea{min-height:52px}

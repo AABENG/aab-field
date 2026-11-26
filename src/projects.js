@@ -54,7 +54,8 @@ router.post('/projects', auth.requireLogin, canSetup, async (req, res) => {
 router.get('/projects/:id', auth.requireLogin, async (req, res, next) => {
   const p = await getProject(req.params.id);
   if (!p) return next();
-  res.send(views.projectPage({ user: req.session.user, project: p, totals: await designTotals(p.id), mapsKey: config.mapsKey }));
+  const [owners] = await pool.query('SELECT id, name, company FROM owners ORDER BY name');
+  res.send(views.projectPage({ user: req.session.user, project: p, totals: await designTotals(p.id), mapsKey: config.mapsKey, owners }));
 });
 
 router.get('/projects/:id/setup', auth.requireLogin, canSetup, async (req, res, next) => {

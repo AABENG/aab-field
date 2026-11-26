@@ -113,6 +113,7 @@ function buildApp(store) {
   app.get('/api/me', auth.requireLogin, (req, res) => res.json(req.session.user));
   app.use(projects);
   app.use(logs.router);
+  app.use(require('./reports').router);
   // service worker must be served from the site root to control field pages
   app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, '..', 'public', 'sw.js')); });
 

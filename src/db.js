@@ -10,6 +10,9 @@ const pool = mysql.createPool({
   dateStrings: true,
   multipleStatements: false,
 });
+// Store and read every timestamp as UTC, whatever the server's own time zone is.
+pool.pool.on('connection', (conn) => conn.query("SET time_zone = '+00:00'"));
+const utc = (s) => (s ? new Date(String(s).replace(' ', 'T') + (/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? '' : 'Z')) : null);
 
 // Runs every .sql file in /migrations once, in name order, and records it in
 // schema_migrations. Safe to run on every start.
@@ -39,4 +42,4 @@ async function migrate() {
   }
 }
 
-module.exports = { pool, migrate };
+module.exports = { utc, pool, migrate };

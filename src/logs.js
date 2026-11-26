@@ -8,6 +8,7 @@ const views = require('./views');
 const config = require('./config');
 const P = require('./progress');
 const A = require('../public/js/areas');
+const lockMsg = (st) => `This week’s report has been ${st === 'sent' ? 'approved and sent' : 'approved'}, so its logs are locked. Ask Joe to reopen it to make changes.`;
 const { weatherAt } = require('./weather');
 
 const router = express.Router();
@@ -81,6 +82,8 @@ router.put('/api/projects/:id/logs/:date', auth.requireLogin, fieldRoles, async 
   if (!p) return res.status(404).json({ error: 'No such project' });
   const date = req.params.date;
   if (!DATE.test(date)) return res.status(400).json({ error: 'Bad date' });
+  const locked = await require('./reports').weekLocked(p.id, date);
+  if (locked) return res.status(409).json({ error: lockMsg(locked) });
   const b = req.body || {};
   const [lines] = await pool.query('SELECT id, item, length_ft FROM project_lines WHERE project_id = ?', [p.id]);
   const lineById = new Map(lines.map((l) => [l.id, l]));
@@ -154,6 +157,8 @@ router.post('/api/projects/:id/logs/:date/photos', auth.requireLogin, fieldRoles
   if (!p || !DATE.test(req.params.date)) return res.status(404).json({ error: 'Not found' });
   const [[log]] = await pool.query('SELECT id FROM daily_logs WHERE project_id = ? AND log_date = ?', [p.id, req.params.date]);
   if (!log) return res.status(409).json({ error: 'Save the day’s log before adding photos' });
+  const locked = await require('./reports').weekLocked(p.id, req.params.date);
+  if (locked) return res.status(409).json({ error: lockMsg(locked) });
   const m = /^data:image\/jpeg;base64,([A-Za-z0-9+/=]+)$/.exec(String((req.body || {}).data || ''));
   if (!m) return res.status(400).json({ error: 'Photo must be a JPEG' });
   const buf = Buffer.from(m[1], 'base64');
@@ -179,8 +184,10 @@ router.get('/photos/:id', auth.requireLogin, async (req, res, next) => {
 });
 
 router.delete('/api/photos/:id', auth.requireLogin, fieldRoles, async (req, res) => {
-  const [[ph]] = await pool.query('SELECT file_name FROM photos WHERE id = ?', [req.params.id]);
+  const [[ph]] = await pool.query(`SELECT ph.file_name, d.project_id, DATE_FORMAT(d.log_date, '%Y-%m-%d') date FROM photos ph JOIN daily_logs d ON d.id = ph.log_id WHERE ph.id = ?`, [req.params.id]);
   if (!ph) return res.status(404).json({ error: 'Not found' });
+  const locked = await require('./reports').weekLocked(ph.project_id, ph.date);
+  if (locked) return res.status(409).json({ error: lockMsg(locked) });
   await pool.query('DELETE FROM photos WHERE id = ?', [req.params.id]);
   fs.rm(path.join(uploadDir(), path.basename(ph.file_name)), { force: true }, () => {});
   res.json({ ok: true });
