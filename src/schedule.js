@@ -28,6 +28,7 @@ const PRED = (hasCurb) => ({ earth: ['clear'], ss: ['earth'], sd: ['earth'], wl:
 const FIN_AFTER = (hasCurb) => ({ sg: [['ss', 7], ['sd', 7], ['wl', 7]], cb: [['sg', 3]], pv: [[hasCurb ? 'cb' : 'sg', 5]] });
 
 const DAY = 864e5;
+const MAX_LAG = 60;
 const d2n = (d) => Math.floor(Date.parse(String(d).slice(0, 10) + 'T12:00:00Z') / DAY);
 const n2d = (n) => new Date(n * DAY).toISOString().slice(0, 10);
 const addDays = (d, k) => n2d(d2n(d) + k);
@@ -162,7 +163,8 @@ function propose(S, history) {
     return DEFAULT.days[k] || Math.max(1, Math.round((qty || 0) / DEFAULT.rate[k]));
   };
   const lag = (k, pre) => {
-    const v = median([...byJob.values()].filter((j) => j[k] && j[pre]).map((j) => d2n(j[k].start) - d2n(j[pre].start)));
+    // A gap longer than MAX_LAG days was a hold (winter, permits, water district), not sequencing.
+    const v = median([...byJob.values()].filter((j) => j[k] && j[pre]).map((j) => d2n(j[k].start) - d2n(j[pre].start)).filter((d) => d <= MAX_LAG));
     return v != null ? Math.round(v) : (DEFAULT.lag[k] && DEFAULT.lag[k][0] === pre ? DEFAULT.lag[k][1] : 7);
   };
   const preds = PRED(hasCurb), fin = FIN_AFTER(hasCurb);
