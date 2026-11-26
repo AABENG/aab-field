@@ -8,6 +8,7 @@ const { PDF } = require('./pdf');
 const Q = require('./quantities');
 const A = require('../public/js/areas');
 const P = require('./progress');
+const R_addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 
 const NAVY = '#0b1424', INK = '#111827', MUTE = '#5a6684', LINE = '#d6dce8', ACCENT = '#1f66e0';
 const COLOR = { wl: '#1f6fd1', ss: '#1f9a4a', sd: '#d1491f', sg: '#b07a43', cb: '#7e8aa3', pv: '#2b3446', clear: '#d4b106', earth: '#7a4fd6' };
@@ -160,12 +161,32 @@ function build(data, c, weekStart, opt = {}) {
   return pdf.build({ title: `${p.name} – Weekly report – week of ${nice(weekStart)}, ${weekStart.slice(0, 4)}` });
 }
 
+// One exhibit page per utility (and one for streets, one for clearing and
+// earthwork), each showing only that work in three unmistakable styles:
+//   earlier weeks = solid color; this week = color on a yellow highlighter band;
+//   still to install = thin dashed line. The legend carries the quantities.
+const HILITE = '#ffd23f';
+const UTIL = [['wl', 'Waterline', ['fh', 'vv']], ['ss', 'Sanitary sewer', ['mh']], ['sd', 'Storm sewer', ['st']]];
+const KIND_LABEL = { mh: 'manholes', st: 'storm structures', fh: 'fire hydrants', vv: 'water valves' };
+
 function exhibit(pdf, data, c, weekStart, weekEnd, header) {
-  pdf.addPage(792, 612);
-  const top = header('Progress Exhibit');
   const p = data.project, hasCurb = !!p.has_curb;
-  const box = { x: 40, y: top + 6, w: 792 - 80, h: 612 - top - 6 - 96 };
-  // extent: design lines, limits of clearing and logged areas
+  const { week, toDate } = Q.summarize(c, weekStart, weekEnd);
+  const has = (item) => data.lines.some((l) => l.item === item);
+  const pages = [];
+  for (const [k, name, kinds] of UTIL) if (has(k) && (toDate[k] || kinds.some((x) => toDate[x]))) pages.push({ kind: 'util', item: k, name, kinds });
+  if (has('cl') && ['sg', 'cb', 'pv'].some((t) => toDate[t])) pages.push({ kind: 'streets', name: 'Streets (subgrade, curb, paving)' });
+  if (data.areas.some((a) => a.date <= weekEnd) || (data.limits || []).length && toDate.clear) pages.push({ kind: 'site', name: 'Clearing and earthwork' });
+  if (!pages.length) pages.push({ kind: 'overview', name: 'Site plan (no work recorded yet)' });
+  for (const pg of pages) exhibitPage(pdf, data, c, weekStart, weekEnd, header, pg, { week, toDate, hasCurb });
+}
+
+function exhibitPage(pdf, data, c, weekStart, weekEnd, header, pg, ctx) {
+  pdf.addPage(792, 612);
+  const top = header(`Exhibit: ${pg.name}`);
+  const p = data.project;
+  const rows = pg.kind === 'util' ? 1 + pg.kinds.filter((k) => c.design[k]).length : pg.kind === 'streets' ? (ctx.hasCurb ? 3 : 2) : pg.kind === 'site' ? 2 : 0;
+  const box = { x: 40, y: top + 6, w: 792 - 80, h: 612 - top - 6 - (rows * 15 + 52) };
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   const grow = (pts) => pts.forEach(([x, yy]) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; });
   data.lines.forEach((l) => grow(l.pts)); (data.limits || []).forEach(grow);
@@ -175,53 +196,74 @@ function exhibit(pdf, data, c, weekStart, weekEnd, header) {
   const ox = box.x + (box.w - (x1 - x0) * s) / 2, oy = box.y + (box.h - (y1 - y0) * s) / 2;
   const T = (pts) => pts.map(([x, yy]) => [ox + (x - x0) * s, oy + (y1 - yy) * s]);
   pdf.rect(box.x, box.y, box.w, box.h, { stroke: LINE, width: 0.8 });
+  for (const l of data.lines) prep(l);
 
+  const covered = (lineId, track, to) => P.union(data.progress.filter((r) => r.line_id === lineId && r.track === track && r.date <= to).map((r) => [r.from, r.to]));
+  const states = (l, track) => {
+    const before = covered(l.id, track, R_addDays(weekStart, -1)), thru = covered(l.id, track, weekEnd);
+    return { before, thisWeek: P.minus(thru, before), remaining: P.minus([[0, l.len]], thru) };
+  };
+  const draw3 = (l, track, col, w) => {
+    const st = states(l, track);
+    st.remaining.forEach(([a, b]) => pdf.path(T(sub(l, a, b)), { stroke: col, width: Math.max(0.8, w * 0.45), dash: [3, 2.5] }));
+    st.thisWeek.forEach(([a, b]) => pdf.path(T(sub(l, a, b)), { stroke: HILITE, width: w + 6, opacity: 0.85 }));
+    st.before.forEach(([a, b]) => pdf.path(T(sub(l, a, b)), { stroke: col, width: w }));
+    st.thisWeek.forEach(([a, b]) => pdf.path(T(sub(l, a, b)), { stroke: col, width: w }));
+  };
+
+  const CLEAR_BEFORE = '#f1e7b8', CLEAR_WEEK = '#ffd84d', EARTH_FILL = '#e4dafb';
   pdf.clipRect(box.x, box.y, box.w, box.h, () => {
-    let bg = {}; try { bg = JSON.parse(p.background_json || '{}'); } catch (e) { /* none */ }
-    const bgStyle = { other: ['#e8ebf1', 0.3], lots: ['#cfd6e2', 0.4], row: ['#aeb8ca', 0.55], curb: ['#97a2b6', 0.5] };
-    for (const [k, [col, w]] of Object.entries(bgStyle)) for (const pts of bg[k] || []) if (Array.isArray(pts) && pts.length > 1 && Array.isArray(pts[0])) pdf.path(T(pts), { stroke: col, width: w });
-
-    // clearing
-    const lim = data.limits && data.limits.length ? data.limits.map(T) : null;
-    const inLim = (fn) => (lim ? pdf.clip(lim, fn) : fn());
-    inLim(() => {
-      data.areas.filter((a) => a.kind === 'clear' && a.date < weekStart).forEach((a) => pdf.path(T(a.pts), { fill: '#9aa3b2', opacity: 0.22 }));
-      data.areas.filter((a) => a.kind === 'clear' && a.date >= weekStart && a.date <= weekEnd).forEach((a) => pdf.path(T(a.pts), { fill: COLOR.clear, opacity: 0.32 }));
-    });
-    if (lim) lim.forEach((r) => pdf.path(r, { stroke: '#a88a00', width: 1, dash: [6, 3], close: true }));
-    // earthwork this week
-    data.areas.filter((a) => a.kind === 'earth' && a.date >= weekStart && a.date <= weekEnd)
-      .forEach((a) => pdf.path(T(a.pts), { fill: COLOR.earth, stroke: COLOR.earth, width: 0.8, opacity: 0.25 }));
-    data.areas.filter((a) => a.kind === 'earth' && a.date >= weekStart && a.date <= weekEnd)
-      .forEach((a) => pdf.path(T(a.pts), { stroke: COLOR.earth, width: 0.9, close: true }));
-
-    // lines: remaining gray, earlier faded, this week solid
-    const segs = (l, iv) => iv.map(([a, b]) => sub(l, a, b));
-    const covered = (lineId, track, to, from) => {
-      const rows = data.progress.filter((r) => r.line_id === lineId && r.track === track && r.date <= to && (!from || r.date >= from));
-      return P.union(rows.map((r) => [r.from, r.to]));
-    };
-    for (const l of data.lines) prep(l);
-    for (const l of data.lines) pdf.path(T(l.pts), { stroke: '#c2c9d6', width: l.item === 'cl' ? 0.6 : 0.9 });
-    const tracks = (l) => (l.item === 'cl' ? (hasCurb ? [['sg', 5.5], ['cb', 3.2], ['pv', 1.5]] : [['sg', 5.5], ['pv', 1.8]]) : [['line', 2.4]]);
-    for (const l of data.lines) {
-      for (const [t, w] of tracks(l)) {
-        const col = COLOR[t === 'line' ? l.item : t];
-        const before = covered(l.id, t, addDays(weekStart, -1));
-        const thru = covered(l.id, t, weekEnd);
-        const thisWeek = P.minus(thru, before);
-        segs(l, before).forEach((pts) => pdf.path(T(pts), { stroke: col, width: w, opacity: 0.35 }));
-        segs(l, thisWeek).forEach((pts) => pdf.path(T(pts), { stroke: col, width: w }));
-      }
+    if (pg.kind === 'site') {
+      const lim = data.limits && data.limits.length ? data.limits.map(T) : null;
+      const inLim = (fn) => (lim ? pdf.clip(lim, fn) : fn());
+      inLim(() => {
+        data.areas.filter((a) => a.kind === 'clear' && a.date < weekStart).forEach((a) => pdf.path(T(a.pts), { fill: CLEAR_BEFORE }));
+        data.areas.filter((a) => a.kind === 'clear' && a.date >= weekStart && a.date <= weekEnd).forEach((a) => pdf.path(T(a.pts), { fill: CLEAR_WEEK }));
+      });
+      data.areas.filter((a) => a.kind === 'earth' && a.date >= weekStart && a.date <= weekEnd).forEach((a) => pdf.path(T(a.pts), { fill: EARTH_FILL }));
     }
-    // structures
-    const r = 2.3;
-    for (const st of data.structures) {
-      const [[x, yy]] = T([[st.x, st.y]]);
-      const d = c.structDay.get(st.id), col = COLOR[KIND_ITEM[st.kind]];
-      if (d && d >= weekStart && d <= weekEnd) pdf.circle(x, yy, r, { fill: col, stroke: '#ffffff', width: 0.5 });
-      else if (d && d < weekStart) pdf.circle(x, yy, r, { fill: lighten(col), stroke: col, width: 0.4 });
-      else pdf.circle(x, yy, r, { fill: '#ffffff', stroke: '#9aa3b2', width: 0.5 });
+    let bg = {}; try { bg = JSON.parse(p.background_json || '{}'); } catch (e) { /* none */ }
+    const bgStyle = { other: ['#eceff4', 0.3], lots: ['#d7dde7', 0.4], row: ['#b9c2d2', 0.5], curb: ['#a6b0c2', 0.45] };
+    for (const [k, [col, w]] of Object.entries(bgStyle)) for (const pts of bg[k] || []) if (Array.isArray(pts) && pts.length > 1 && Array.isArray(pts[0])) pdf.path(T(pts), { stroke: col, width: w });
+    // other work in faint gray for orientation
+    for (const l of data.lines) {
+      const mine = (pg.kind === 'util' && l.item === pg.item) || (pg.kind === 'streets' && l.item === 'cl');
+      if (!mine) pdf.path(T(l.pts), { stroke: '#d3d8e2', width: 0.6 });
+    }
+    if (pg.kind === 'util') {
+      const col = COLOR[pg.item];
+      for (const l of data.lines) if (l.item === pg.item) draw3(l, 'line', col, 2.6);
+      for (const st of data.structures) {
+        if (!pg.kinds.includes(st.kind)) continue;
+        const [[x, yy]] = T([[st.x, st.y]]), d = c.structDay.get(st.id);
+        if (d && d >= weekStart && d <= weekEnd) { pdf.circle(x, yy, 5.2, { fill: HILITE, stroke: HILITE, width: 0.1 }); pdf.circle(x, yy, 2.8, { fill: col, stroke: '#ffffff', width: 0.6 }); }
+        else if (d) pdf.circle(x, yy, 2.8, { fill: col, stroke: '#ffffff', width: 0.6 });
+        else pdf.circle(x, yy, 2.6, { fill: '#ffffff', stroke: col, width: 0.9 });
+      }
+    } else if (pg.kind === 'streets') {
+      const tracks = ctx.hasCurb ? [['sg', 7], ['cb', 4], ['pv', 1.8]] : [['sg', 7], ['pv', 2.2]];
+      for (const l of data.lines) if (l.item === 'cl') pdf.path(T(l.pts), { stroke: '#9aa3b2', width: 0.9, dash: [3, 2.5] });
+      for (const [t, w] of tracks) for (const l of data.lines) if (l.item === 'cl') {
+        const st = states(l, t);
+        st.thisWeek.forEach(([a, b]) => pdf.path(T(sub(l, a, b)), { stroke: HILITE, width: w + 6, opacity: 0.85 }));
+      }
+      for (const [t, w] of tracks) for (const l of data.lines) if (l.item === 'cl') {
+        const st = states(l, t);
+        st.before.concat(st.thisWeek).forEach(([a, b]) => pdf.path(T(sub(l, a, b)), { stroke: COLOR[t], width: w }));
+      }
+    } else if (pg.kind === 'site') {
+      const lim = data.limits && data.limits.length ? data.limits.map(T) : null;
+      const inLim = (fn) => (lim ? pdf.clip(lim, fn) : fn());
+      void inLim;
+      if (lim) lim.forEach((r) => pdf.path(r, { stroke: '#8a7000', width: 1.1, dash: [6, 3], close: true }));
+      const earth = data.areas.filter((a) => a.kind === 'earth' && a.date >= weekStart && a.date <= weekEnd);
+      earth.forEach((a) => {
+        const pts = T(a.pts); pdf.path(pts, { stroke: COLOR.earth, width: 1.2, close: true });
+        const cx = pts.reduce((q, v) => q + v[0], 0) / pts.length, cy = pts.reduce((q, v) => q + v[1], 0) / pts.length;
+        const d = new Date(a.date + 'T12:00:00Z'); pdf.text(cx, cy - 4, `${DOW[(d.getUTCDay() + 6) % 7]} ${md(a.date)}`, { size: 7, bold: true, color: '#4b2e9e', align: 'center' });
+      });
+    } else {
+      for (const l of data.lines) pdf.path(T(l.pts), { stroke: COLOR[l.item] || '#9aa3b2', width: 1, dash: [3, 2.5] });
     }
   });
 
@@ -237,31 +279,55 @@ function exhibit(pdf, data, c, weekStart, weekEnd, header) {
   pdf.rect(sx, sy, ft * s, 4, { stroke: INK, width: 0.6 });
   pdf.text(sx, sy - 11, '0', { size: 7 }); pdf.text(sx + ft * s, sy - 11, `${Math.round(ft).toLocaleString('en-US')} ft`, { size: 7, align: 'center' });
 
-  // legend
-  let lx = 40; const ly = box.y + box.h + 12;
-  const sw = (label, draw) => { draw(lx, ly + 4); pdf.text(lx + 26, ly, label, { size: 8, color: INK }); lx += 26 + pdf.width(label, 8) + 16; };
-  const present = new Set(data.lines.map((l) => l.item));
-  if (present.has('wl')) sw('Waterline', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: COLOR.wl, width: 2.4 }));
-  if (present.has('ss')) sw('Sanitary sewer', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: COLOR.ss, width: 2.4 }));
-  if (present.has('sd')) sw('Storm sewer', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: COLOR.sd, width: 2.4 }));
-  if (present.has('cl')) {
-    sw('Subgrade', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: COLOR.sg, width: 5.5 }));
-    if (hasCurb) sw('Curb and gutter', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: COLOR.cb, width: 3.2 }));
-    sw('Paving', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: COLOR.pv, width: 1.5 }));
+  // legend with quantities
+  const { week, toDate } = ctx;
+  const q = (k, unit) => {
+    const d = c.design[k] || 0, t = toDate[k] || 0, w = week[k] || 0;
+    const f2 = (v) => (unit === 'AC' ? v.toFixed(2) : Math.round(v).toLocaleString('en-US'));
+    return { before: `${f2(t - w)} ${unit}`, week: `${f2(w)} ${unit}`, left: d ? `${f2(Math.max(0, d - t))} ${unit}` : '—' };
+  };
+  let ly = box.y + box.h + 10;
+  const colX = [40, 300, 520];
+  const swLine = (x, yy, col, w, kind) => {
+    if (kind === 'week') pdf.line(x, yy, x + 24, yy, { stroke: HILITE, width: w + 6, opacity: 0.85 });
+    if (kind === 'left' && pg.kind === 'streets') pdf.line(x, yy, x + 24, yy, { stroke: '#9aa3b2', width: 0.9, dash: [3, 2.5] });
+    else if (kind === 'left') pdf.line(x, yy, x + 24, yy, { stroke: col, width: Math.max(0.8, w * 0.45), dash: [3, 2.5] });
+    else pdf.line(x, yy, x + 24, yy, { stroke: col, width: w });
+  };
+  const row = (label, col, w, qq, symbol) => {
+    [['before', 'Installed before this week'], ['week', 'Installed this week'], ['left', 'Still to install']].forEach(([k, t], i) => {
+      symbol ? symbol(colX[i] + 12, ly + 4, k) : swLine(colX[i], ly + 4, col, w, k);
+      pdf.text(colX[i] + 32, ly, `${t}${label ? ' (' + label + ')' : ''}: `, { size: 8.5, color: INK });
+      pdf.text(colX[i] + 32 + pdf.width(`${t}${label ? ' (' + label + ')' : ''}: `, 8.5), ly, qq[k], { size: 8.5, bold: true, color: INK });
+    });
+    ly += 16;
+  };
+  if (pg.kind === 'util') {
+    row('', COLOR[pg.item], 2.6, q(pg.item, 'LF'));
+    for (const k of pg.kinds) if (c.design[k]) {
+      const col = COLOR[pg.item];
+      row(KIND_LABEL[k], col, 2.6, q(k, 'EA'), (x, yy, kind) => {
+        if (kind === 'week') { pdf.circle(x, yy, 5.2, { fill: HILITE, stroke: HILITE, width: 0.1 }); pdf.circle(x, yy, 2.8, { fill: col, stroke: '#fff', width: 0.6 }); }
+        else if (kind === 'before') pdf.circle(x, yy, 2.8, { fill: col, stroke: '#fff', width: 0.6 });
+        else pdf.circle(x, yy, 2.6, { fill: '#fff', stroke: col, width: 0.9 });
+      });
+    }
+  } else if (pg.kind === 'streets') {
+    const tracks = ctx.hasCurb ? [['sg', 'subgrade', 7], ['cb', 'curb', 4], ['pv', 'paving', 1.8]] : [['sg', 'subgrade', 7], ['pv', 'paving', 2.2]];
+    for (const [t, n, w] of tracks) row(n, COLOR[t], Math.min(w, 5), q(t, 'LF'));
+  } else if (pg.kind === 'site') {
+    const qq = q('clear', 'AC');
+    [['before', 'Cleared before this week', CLEAR_BEFORE], ['week', 'Cleared this week', CLEAR_WEEK]].forEach(([k, t, col], i) => {
+      pdf.rect(colX[i], ly, 24, 9, { fill: col });
+      pdf.text(colX[i] + 32, ly, `${t}: `, { size: 8.5, color: INK }); pdf.text(colX[i] + 32 + pdf.width(`${t}: `, 8.5), ly, qq[k], { size: 8.5, bold: true, color: INK });
+    });
+    if ((data.limits || []).length) { pdf.line(colX[2], ly + 4, colX[2] + 24, ly + 4, { stroke: '#8a7000', width: 1.1, dash: [6, 3] }); pdf.text(colX[2] + 32, ly, 'Limits of clearing; left to clear: ', { size: 8.5, color: INK }); pdf.text(colX[2] + 32 + pdf.width('Limits of clearing; left to clear: ', 8.5), ly, qq.left, { size: 8.5, bold: true, color: INK }); }
+    ly += 16;
+    pdf.rect(colX[0], ly, 24, 9, { fill: EARTH_FILL, stroke: COLOR.earth, width: 1 });
+    pdf.text(colX[0] + 32, ly, 'Earthwork this week (labeled by day)', { size: 8.5, color: INK });
+    ly += 16;
   }
-  lx = 40; const ly2 = ly + 18;
-  const sw2 = (label, draw) => { draw(lx, ly2 + 4); pdf.text(lx + 26, ly2, label, { size: 8, color: INK }); lx += 26 + pdf.width(label, 8) + 16; };
-  sw2('Done this week', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: '#3b4660', width: 2.4 }));
-  sw2('Done before this week', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: '#3b4660', width: 2.4, opacity: 0.35 }));
-  sw2('Not yet done', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: '#c2c9d6', width: 0.9 }));
-  if (data.areas.some((a) => a.kind === 'clear') || (data.limits || []).length) {
-    sw2('Cleared this week', (x, yy) => pdf.rect(x, yy - 4, 20, 8, { fill: COLOR.clear, opacity: 0.32 }));
-    sw2('Cleared before', (x, yy) => pdf.rect(x, yy - 4, 20, 8, { fill: '#9aa3b2', opacity: 0.22 }));
-    if ((data.limits || []).length) sw2('Limits of clearing', (x, yy) => pdf.line(x, yy, x + 20, yy, { stroke: '#a88a00', width: 1, dash: [6, 3] }));
-  }
-  if (data.areas.some((a) => a.kind === 'earth' && a.date >= weekStart && a.date <= weekEnd)) sw2('Earthwork this week', (x, yy) => pdf.rect(x, yy - 4, 20, 8, { fill: COLOR.earth, opacity: 0.25, stroke: COLOR.earth }));
-  lx = 40;
-  pdf.text(40, ly2 + 18, 'Circles: structures and fittings (filled = reached this week, light = earlier, open = not yet). Plan north is up.', { size: 7.5, color: MUTE });
+  pdf.text(40, ly + 2, 'Gray lines are other work, shown for orientation. Plan north is up.', { size: 7.5, color: MUTE });
 }
 
 function prep(l) { if (l.cum) return; l.cum = [0]; for (let i = 1; i < l.pts.length; i++) l.cum.push(l.cum[i - 1] + Math.hypot(l.pts[i][0] - l.pts[i - 1][0], l.pts[i][1] - l.pts[i - 1][1])); l.len = l.cum[l.cum.length - 1]; }
