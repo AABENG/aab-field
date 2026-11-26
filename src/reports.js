@@ -12,6 +12,7 @@ const config = require('./config');
 const Q = require('./quantities');
 const R = require('./report');
 const mail = require('./mail');
+const Sch = require('./schedule');
 
 const router = express.Router();
 const esc = views.esc;
@@ -33,7 +34,7 @@ const weekEndOf = (ws) => R.addDays(ws, 5);
 const weekStartOf = (we) => R.addDays(we, -5);
 
 // ---------- summaries ----------
-function weekSummary(data, c, ws) {
+function weekSummary(data, c, ws, sched) {
   const we = weekEndOf(ws);
   const { week, toDate } = Q.summarize(c, ws, we);
   const out = [];
@@ -50,6 +51,7 @@ function weekSummary(data, c, ws) {
   const work = logs.filter((l) => !l.no_crew).length;
   const rain = logs.reduce((s, l) => s + (l.rain_in == null ? 0 : Number(l.rain_in)), 0);
   out.push(`Crew on site ${work} of ${logs.length} logged day${logs.length === 1 ? '' : 's'}${rain >= 0.01 ? `; ${rain.toFixed(2)} in of rain recorded` : ''}`);
+  if (sched && (sched.st.ntp || sched.st.hasPlan)) out.push(`Schedule: ${require('./schedulePages').statusLine(sched.st)}`);
   return out;
 }
 
@@ -75,8 +77,11 @@ async function pdfFor(r) {
     try { return fs.readFileSync(path.join(reportDir(), path.basename(r.pdf_file))); } catch (e) { /* rebuild below */ }
   }
   const data = await Q.load(r.project_id), c = Q.compute(data);
-  return R.build(data, c, weekStartOf(r.we || dstr(r.week_ending)), {
+  const ws = weekStartOf(r.we || dstr(r.week_ending));
+  const S = await Sch.load(r.project_id);
+  return R.build(data, c, ws, {
     status: r.status, notes: r.notes, approvedBy: r.approver, approvedAt: r.approved_at ? dstr(r.approved_at) : null, uploadDir: config.uploadDir,
+    schedule: S ? { S, st: Sch.status(S, weekEndOf(ws)) } : null,
   });
 }
 const pdfName = (r) => `${r.job_no} ${r.name.replace(/[^\w .-]+/g, '')} - week ending ${r.we}.pdf`;
@@ -98,7 +103,7 @@ async function sendReviewRequest(ws, rows) {
   for (const g of groups) {
     text += `\n${g.label}\n`; html += `<h3 style="margin:18px 0 6px">${esc(g.label)}</h3>`;
     for (const r of g.rows) {
-      const data = await Q.load(r.project_id), c = Q.compute(data), lines = weekSummary(data, c, ws);
+      const data = await Q.load(r.project_id), c = Q.compute(data), S = await Sch.load(r.project_id), lines = weekSummary(data, c, ws, S && { S, st: Sch.status(S, weekEndOf(ws)) });
       text += `  ${r.name} (${r.job_no})\n` + lines.map((l) => `    - ${l}\n`).join('');
       html += `<p style="margin:6px 0 2px"><b>${esc(r.name)}</b> <span style="color:#667">${esc(r.job_no)}${r.wo_no ? ' · WO ' + esc(r.wo_no) : ''}</span></p><ul style="margin:0 0 8px">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
       attachments.push({ name: pdfName(r), data: await pdfFor(r) });
@@ -133,7 +138,7 @@ async function sendOwner(ownerId, we) {
   let html = `<p>${esc(owner)},</p><p>Attached are AAB Engineering's construction observation reports for the week of <b>${nice(ws)} – ${nice(we)}</b>. Here's a quick summary of the work:</p>`;
   const attachments = [];
   for (const r of rows) {
-    const data = await Q.load(r.project_id), c = Q.compute(data), lines = weekSummary(data, c, ws);
+    const data = await Q.load(r.project_id), c = Q.compute(data), S = await Sch.load(r.project_id), lines = weekSummary(data, c, ws, S && { S, st: Sch.status(S, weekEndOf(ws)) });
     text += `\n${r.name} (Project ${r.job_no}${r.wo_no ? ', WO ' + r.wo_no : ''})\n` + lines.map((l) => `  - ${l}\n`).join('') + (r.notes ? `  Notes: ${r.notes}\n` : '');
     html += `<p style="margin:14px 0 2px"><b>${esc(r.name)}</b> <span style="color:#667">Project ${esc(r.job_no)}${r.wo_no ? ' · WO ' + esc(r.wo_no) : ''}</span></p><ul style="margin:0 0 6px">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>${r.notes ? `<p style="margin:0 0 8px"><i>${esc(r.notes)}</i></p>` : ''}`;
     attachments.push({ name: pdfName(r), data: await pdfFor(r) });
@@ -180,7 +185,7 @@ router.get('/reviews/:we', auth.requireLogin, canView, async (req, res, next) =>
   const groups = groupByOwner(rows);
   const [weeks] = await pool.query("SELECT DATE_FORMAT(week_ending, '%Y-%m-%d') we, COUNT(*) n, SUM(status IN ('approved','sent')) ok FROM weekly_reports GROUP BY week_ending ORDER BY week_ending DESC LIMIT 12");
   const sum = new Map();
-  for (const r of rows) { const data = await Q.load(r.project_id); sum.set(r.id, weekSummary(data, Q.compute(data), ws)); }
+  for (const r of rows) { const data = await Q.load(r.project_id), S = await Sch.load(r.project_id); sum.set(r.id, weekSummary(data, Q.compute(data), ws, S && { S, st: Sch.status(S, we) })); }
   const tag = (s) => `<span class="tag ${s === 'sent' ? 'active' : s === 'approved' ? 'active' : 'setup'}">${s === 'review' || s === 'draft' ? 'to review' : s}</span>`;
   const body = `
     <div class="card"><div class="head"><div><h1>Weekly reports</h1><div class="mute">Week of ${nice(ws)} – ${nice(we)}, ${we.slice(0, 4)}</div></div>

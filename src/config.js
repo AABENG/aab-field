@@ -25,6 +25,8 @@ module.exports = {
   publicUrl: (env.PUBLIC_URL || 'https://cm.aabeng.com').replace(/\/$/, ''),
   // Secret in the Sunday cPanel cron job's URL that builds last week's reports.
   cronKey: env.CRON_KEY || '',
+  // Read-only key the QNAP uses to copy approved reports and photos.
+  archiveKey: env.ARCHIVE_KEY || '',
   // Approved report PDFs are kept here (inside the uploads folder by default).
   reportDir: env.REPORT_DIR || '',
   uploadDir: env.UPLOAD_DIR || require('path').resolve(__dirname, '..', '..', 'aab-field-uploads'),

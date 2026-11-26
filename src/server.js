@@ -114,6 +114,8 @@ function buildApp(store) {
   app.use(projects);
   app.use(logs.router);
   app.use(require('./reports').router);
+  app.use(require('./archive').router);
+  app.use(require('./schedulePages').router);
   // service worker must be served from the site root to control field pages
   app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, '..', 'public', 'sw.js')); });
 

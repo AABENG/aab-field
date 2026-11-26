@@ -184,7 +184,7 @@ function projectPage({ user, project: p, totals, mapsKey, owners = [] }) {
   return layout({ title: p.name, user, wide: true, body: `
     <div class="card">
       <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">Project ${esc(p.job_no)} · WO ${esc(p.wo_no || '—')}${p.client ? ' · ' + esc(p.client) : ''}${p.latitude != null ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${Number(p.latitude)},${Number(p.longitude)}" target="_blank" rel="noopener">${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}</a>` : ''}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${totals.lines.length ? `<a class="btn sm" href="/projects/${p.id}/log">Daily log</a>` : ''}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${totals.lines.length ? `<a class="btn sm" href="/projects/${p.id}/log">Daily log</a>` : ''}${canSetup(user) && totals.lines.length ? ` <a class="btn sm sec" href="/projects/${p.id}/schedule">Schedule</a>` : ''}
       ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div></div>
       ${canSetup(user) ? `<form method="post" action="/projects/${p.id}/owner" class="inline" style="margin-top:12px">
         <span class="mute">Owner (gets the weekly email)</span>

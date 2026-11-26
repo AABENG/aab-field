@@ -23,7 +23,7 @@ async function req(method, path, { form, who = 'a' } = {}) {
 }
 
 before(async () => {
-  for (const t of ['weekly_reports', 'photos', 'log_areas', 'log_progress', 'daily_logs', 'project_members', 'project_structures', 'project_lines', 'projects', 'owners', 'users', 'sessions', 'schema_migrations']) {
+  for (const t of ['weekly_reports', 'photos', 'log_areas', 'log_progress', 'daily_logs', 'project_members', 'project_structures', 'history_items', 'history_jobs', 'earthwork_progress', 'project_schedule', 'project_weights', 'project_lines', 'projects', 'contractors', 'owners', 'users', 'sessions', 'schema_migrations']) {
     await pool.query(`DROP TABLE IF EXISTS ${t}`);
   }
   await migrate();

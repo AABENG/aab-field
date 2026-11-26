@@ -69,6 +69,23 @@ Then **Reports → Send test email to me**. The client secret expires (24 months
 
 cPanel → **Cron Jobs**, every hour: `curl -s "https://cm.aabeng.com/cron/weekly?key=YOUR_CRON_KEY" > /dev/null`
 
+## NAS copies (QNAP)
+
+Approved reports and that week's photos are copied to the QNAP every night by `tools/qnap-sync.sh`, which runs on the QNAP itself. It downloads only new or changed files and never deletes anything. Files go to each project's **NAS folder** (set on the project's Schedule page, relative to the projects share), or to `CM Archive/<project no> <name>/` until one is set:
+`…/Weekly Reports/1714-12 Weekly Report - week ending 2026-11-28.pdf` and `…/Photos/2026-11-24/2026-11-24 09-42 <CO name>.jpg`.
+
+App setting: `ARCHIVE_KEY` (a long random string; it goes in the script too). The script's header has the QNAP install steps.
+
+## Schedule
+
+Each project's **Schedule** page (owner, admin, reviewer):
+- **Contract**: notice to proceed, contract time in calendar days, and the grading, utility and paving contractors.
+- **Planned dates by item**: clearing, earthwork, sanitary, storm, waterline, subgrade, curb, paving. **Propose from contractor history** builds them from each contractor's production rate (quantity ÷ calendar days) and the usual gaps between items, in the normal order of work, from the jobs on **Contractor history** (`/history`; starts with The Grove and Pines III, dates to fill in from their old reports). Rows marked "contractor's schedule" are never overwritten, so enter the contractor's dates there when they come in.
+- **Weights**: whole-site percent complete is weighted by dollars. Defaults are The Grove Phase 1 low-bid unit prices times the job's design quantities (clearing and earthwork per acre inside the limits of clearing); enter the job's contract amounts to replace them.
+- **Earthwork percent** from each LiDAR volume flight.
+
+The weekly report gets a schedule summary on page 1 (contract time used, whole-site percent vs planned, days ahead or behind, forecast completion at the last four weeks' pace) and a schedule page (S-curve and bars by item), and the owner email gets a one-line status per project. Finished app jobs can be added to the history with their logged dates.
+
 ## Maps
 
 - Drawings are assumed to be Oklahoma state plane, NAD83, US survey feet (North zone by default, South selectable in design setup). Converted with proj4.
