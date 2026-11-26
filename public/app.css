@@ -34,3 +34,22 @@ label.chk input{width:auto;margin:0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0 14px;align-items:end}
 .tag{font-size:12px;font-weight:700;padding:3px 8px;border-radius:999px;background:#eef1fb;color:var(--navy2)}
 .tag.active{background:#e6f4ec;color:var(--ok)}.tag.closed{background:#eee;color:#666}
+.head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px}
+.head h1{margin:0}
+.btn.sec{background:#fff;color:var(--navy);border:1px solid var(--navy)}
+a.btn{text-decoration:none;display:inline-block}
+.cols{display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap}
+.cols>.card{flex:1 1 300px}.cols>.card.grow{flex:3 1 520px}
+.planbox{position:relative;border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}
+.planbox svg{display:block;width:100%;height:60vh;touch-action:none;cursor:grab}
+.planbox.tall svg{height:72vh}
+.planbox .zoom{position:absolute;right:8px;top:8px;display:flex;flex-direction:column;gap:6px}
+.planbox .zoom button{width:34px;height:34px;border-radius:8px;border:1px solid var(--line);background:#fff;font-size:18px;font-weight:700;cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--mute);margin-top:8px}
+.legend i{display:inline-block;width:20px;height:4px;border-radius:2px;margin-right:5px;vertical-align:middle}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tablewrap{overflow-x:auto}
+#layerTable select{margin:0;padding:6px;font-size:13px;width:auto}
+#layerTable td{font-size:13px}
+#layerTable label.chk{font-size:12px;white-space:nowrap}
+.hide{display:none!important}

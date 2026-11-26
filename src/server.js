@@ -6,6 +6,7 @@ const config = require('./config');
 const { pool, migrate } = require('./db');
 const auth = require('./auth');
 const views = require('./views');
+const projects = require('./projects');
 
 function sameOrigin(req, res, next) {
   // Basic CSRF guard: state-changing requests must come from our own pages.
@@ -35,7 +36,8 @@ function buildApp(store) {
   if (config.trustProxy) app.set('trust proxy', 1);
   app.disable('x-powered-by');
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
-  app.use(express.json({ limit: '2mb' }));
+  const smallJson = express.json({ limit: '2mb' });
+  app.use((req, res, next) => (req.path.endsWith('/design') ? next() : smallJson(req, res, next)));
   app.use('/static', express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
   app.use(session({
     name: 'aabfield.sid',
@@ -102,10 +104,11 @@ function buildApp(store) {
 
   // ---- signed-in pages ----
   app.get('/', auth.requireLogin, async (req, res) => {
-    const [projects] = await pool.query('SELECT job_no, name, client, status FROM projects ORDER BY status, job_no');
-    res.send(views.homePage({ user: req.session.user, projects }));
+    const [list] = await pool.query('SELECT id, job_no, name, client, status FROM projects ORDER BY status, job_no');
+    res.send(views.homePage({ user: req.session.user, projects: list }));
   });
   app.get('/api/me', auth.requireLogin, (req, res) => res.json(req.session.user));
+  app.use(projects);
 
   // ---- user admin (owner and admin) ----
   const canManage = auth.requireRole('owner', 'admin');

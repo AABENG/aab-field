@@ -52,13 +52,15 @@ function setupPage({ error, form = {} }) {
     </div>` });
 }
 
+const canSetup = (u) => ['owner', 'admin', 'reviewer'].includes(u.role);
+
 function homePage({ user, projects }) {
   const rows = projects.length ? projects.map((p) => `
-      <tr><td>${esc(p.job_no)}</td><td>${esc(p.name)}</td><td>${esc(p.client || '')}</td><td><span class="tag ${esc(p.status)}">${esc(p.status)}</span></td></tr>`).join('')
-    : '<tr><td colspan="4" class="mute">No projects yet. Project setup from a DXF comes in the next step.</td></tr>';
+      <tr><td>${esc(p.job_no)}</td><td><a href="/projects/${p.id}">${esc(p.name)}</a></td><td>${esc(p.client || '')}</td><td><span class="tag ${esc(p.status)}">${esc(p.status)}</span></td></tr>`).join('')
+    : '<tr><td colspan="4" class="mute">No projects yet.</td></tr>';
   return layout({ title: 'Projects', user, body: `
     <div class="card">
-      <h1>Projects</h1>
+      <div class="head"><h1>Projects</h1>${canSetup(user) ? '<a class="btn sm" href="/projects/new">New project</a>' : ''}</div>
       <table><thead><tr><th>Job</th><th>Name</th><th>Client</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
     </div>` });
 }
@@ -96,4 +98,87 @@ function usersPage({ user, users, roles, roleLabels, error, notice }) {
     </div>` });
 }
 
-module.exports = { esc, layout, loginPage, setupPage, homePage, usersPage };
+const ITEM_NAMES = { wl: 'Waterline', ss: 'Sanitary sewer', sd: 'Storm sewer', cl: 'Street centerline' };
+const KIND_NAMES = { mh: 'Sanitary manholes', st: 'Storm structures', fh: 'Fire hydrants', vv: 'Water valves' };
+
+function projectFormPage({ user, error, form = {} }) {
+  return layout({ title: 'New project', user, body: `
+    <div class="card">
+      <h1>New project</h1>
+      ${errBox(error)}
+      <form method="post" action="/projects" class="grid">
+        <label>Job number<input name="job_no" placeholder="1714-12" value="${esc(form.job_no)}" required></label>
+        <label>Project name<input name="name" placeholder="The Grove Phase 1" value="${esc(form.name)}" required></label>
+        <label>Client<input name="client" placeholder="Executive Homes" value="${esc(form.client)}"></label>
+        <label>Client report emails <span class="mute">(comma separated)</span><input name="client_emails" value="${esc(form.client_emails)}"></label>
+        <label>Site latitude <span class="mute">(for weather)</span><input name="latitude" inputmode="decimal" placeholder="36.06" value="${esc(form.latitude)}"></label>
+        <label>Site longitude<input name="longitude" inputmode="decimal" placeholder="-95.79" value="${esc(form.longitude)}"></label>
+        <div><button class="btn">Create and set up design</button></div>
+      </form>
+    </div>` });
+}
+
+function totalsTable(totals) {
+  const rows = [];
+  for (const k of Object.keys(ITEM_NAMES)) {
+    const r = totals.lines.find((x) => x.item === k);
+    if (r) rows.push(`<tr><td>${ITEM_NAMES[k]}</td><td class="n">${Math.round(Number(r.ft)).toLocaleString()} LF</td><td class="n mute">${r.n} line${r.n > 1 ? 's' : ''}</td></tr>`);
+  }
+  for (const k of Object.keys(KIND_NAMES)) {
+    const r = totals.structures.find((x) => x.kind === k);
+    if (r) rows.push(`<tr><td>${KIND_NAMES[k]}</td><td class="n">${r.n} EA</td><td></td></tr>`);
+  }
+  return rows.length ? `<table><thead><tr><th>Item</th><th class="n">Design (100%)</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>`
+    : '<p class="mute">No design loaded yet.</p>';
+}
+
+function projectPage({ user, project: p, totals }) {
+  return layout({ title: p.name, user, wide: true, body: `
+    <div class="card">
+      <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">${esc(p.job_no)}${p.client ? ' · ' + esc(p.client) : ''}</div></div>
+      ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div>
+    </div>
+    <div class="cols">
+      <div class="card"><h2>Design quantities</h2>${totalsTable(totals)}</div>
+      <div class="card grow"><h2>Plan</h2><div id="plan" class="planbox" data-project="${p.id}"></div></div>
+    </div>
+    <script src="/static/js/plan.js"></script>
+    <script>AABPlan.mount(document.getElementById('plan'));</script>` });
+}
+
+function setupDesignPage({ user, project: p, locked }) {
+  return layout({ title: 'Design setup · ' + p.name, user, wide: true, body: `
+    <div class="card">
+      <h1>Design setup: ${esc(p.name)}</h1>
+      ${locked ? '<p class="err">Field progress has been logged on this design, so it can’t be replaced.</p>' : `
+      <p class="mute">Pick the project's plan DXF. It's read here in your browser; only the linework you tag is sent to the server. Profiles, contours, grids and drainage-area layers are skipped automatically.</p>
+      <input type="file" id="dxfFile" accept=".dxf">
+      <div id="readStatus" class="mute" style="margin-top:8px"></div>`}
+    </div>
+    <div id="setupUI" class="hide">
+      <div class="card">
+        <h2>1. Limit to the project area</h2>
+        <label>Boundary layer <span class="mute">(lines outside it, plus a margin, are ignored; keeps profile views out)</span>
+          <select id="boundary"></select></label>
+        <label>Margin around boundary (ft)<input id="margin" type="number" value="150" min="0" step="10"></label>
+      </div>
+      <div class="card">
+        <h2>2. Tag the layers</h2>
+        <p class="mute">Guesses are filled in from layer names; check them. Lengths are inside the project area.</p>
+        <div class="tablewrap"><table id="layerTable"><thead><tr><th>Layer</th><th class="n">Lines</th><th class="n">Length (ft)</th><th class="n">Symbols</th><th>Use lines as</th><th>Options</th><th>Symbols as</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card">
+        <h2>3. Check the plan</h2>
+        <p class="mute">Click a colored line to leave it out (it turns gray and dashed); click again to bring it back.</p>
+        <div id="preview" class="planbox tall"></div>
+        <div id="previewTotals" style="margin-top:10px"></div>
+        <div style="margin-top:12px"><button class="btn" id="saveDesign">Save design</button> <span id="saveStatus" class="mute"></span></div>
+      </div>
+    </div>
+    <script src="/static/js/dxf.js"></script>
+    <script src="/static/js/plan.js"></script>
+    <script src="/static/js/setup.js"></script>
+    <script>AABSetup.init(${p.id});</script>` });
+}
+
+module.exports = { esc, layout, loginPage, setupPage, homePage, usersPage, projectFormPage, projectPage, setupDesignPage, ITEM_NAMES, KIND_NAMES };
