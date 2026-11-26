@@ -104,7 +104,7 @@ function buildApp(store) {
 
   // ---- signed-in pages ----
   app.get('/', auth.requireLogin, async (req, res) => {
-    const [list] = await pool.query('SELECT id, job_no, name, client, status FROM projects ORDER BY status, job_no');
+    const [list] = await pool.query('SELECT id, job_no, wo_no, name, client, status FROM projects ORDER BY status, job_no');
     res.send(views.homePage({ user: req.session.user, projects: list }));
   });
   app.get('/api/me', auth.requireLogin, (req, res) => res.json(req.session.user));

@@ -56,12 +56,12 @@ const canSetup = (u) => ['owner', 'admin', 'reviewer'].includes(u.role);
 
 function homePage({ user, projects }) {
   const rows = projects.length ? projects.map((p) => `
-      <tr><td>${esc(p.job_no)}</td><td><a href="/projects/${p.id}">${esc(p.name)}</a></td><td>${esc(p.client || '')}</td><td><span class="tag ${esc(p.status)}">${esc(p.status)}</span></td></tr>`).join('')
-    : '<tr><td colspan="4" class="mute">No projects yet.</td></tr>';
+      <tr><td>${esc(p.job_no)}</td><td>${esc(p.wo_no || '')}</td><td><a href="/projects/${p.id}">${esc(p.name)}</a></td><td>${esc(p.client || '')}</td><td><span class="tag ${esc(p.status)}">${esc(p.status)}</span></td></tr>`).join('')
+    : '<tr><td colspan="5" class="mute">No projects yet.</td></tr>';
   return layout({ title: 'Projects', user, body: `
     <div class="card">
       <div class="head"><h1>Projects</h1>${canSetup(user) ? '<a class="btn sm" href="/projects/new">New project</a>' : ''}</div>
-      <table><thead><tr><th>Job</th><th>Name</th><th>Client</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+      <table><thead><tr><th>Project</th><th>WO</th><th>Name</th><th>Client</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
     </div>` });
 }
 
@@ -109,7 +109,8 @@ function projectFormPage({ user, error, form = {} }) {
       <h1>New project</h1>
       ${errBox(error)}
       <form method="post" action="/projects" class="grid">
-        <label>Job number<input name="job_no" placeholder="1714-12" value="${esc(form.job_no)}" required></label>
+        <label>Project (file) number<input name="job_no" placeholder="1714-12" value="${esc(form.job_no)}" required></label>
+        <label>WO number<input name="wo_no" placeholder="26-243.0" value="${esc(form.wo_no)}"></label>
         <label>Project name<input name="name" placeholder="The Grove Phase 1" value="${esc(form.name)}" required></label>
         <label>Client<input name="client" placeholder="Executive Homes" value="${esc(form.client)}"></label>
         <label>Client report emails <span class="mute">(comma separated)</span><input name="client_emails" value="${esc(form.client_emails)}"></label>
@@ -144,7 +145,7 @@ function totalsTable(totals, hasCurb = true) {
 function projectPage({ user, project: p, totals }) {
   return layout({ title: p.name, user, wide: true, body: `
     <div class="card">
-      <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">${esc(p.job_no)}${p.client ? ' · ' + esc(p.client) : ''}</div></div>
+      <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">Project ${esc(p.job_no)} · WO ${esc(p.wo_no || '—')}${p.client ? ' · ' + esc(p.client) : ''}</div></div>
       ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div>
     </div>
     <div class="cols">

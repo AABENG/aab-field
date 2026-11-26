@@ -29,17 +29,18 @@ router.get('/projects/new', auth.requireLogin, canSetup, (req, res) => {
 
 router.post('/projects', auth.requireLogin, canSetup, async (req, res) => {
   const b = req.body;
-  const form = { job_no: String(b.job_no || '').trim(), name: String(b.name || '').trim(), client: String(b.client || '').trim(),
+  const form = { job_no: String(b.job_no || '').trim(), wo_no: String(b.wo_no || '').trim(), name: String(b.name || '').trim(), client: String(b.client || '').trim(),
     client_emails: String(b.client_emails || '').trim(), latitude: b.latitude, longitude: b.longitude };
   try {
     if (!/^\d{4}-\d{2}$/.test(form.job_no)) throw new Error('Job number looks like 1714-12.');
+    if (form.wo_no && !/^\d{2}-\d{3}(\.\d+)?$/.test(form.wo_no)) throw new Error('WO number looks like 26-243.0.');
     if (!form.name) throw new Error('Enter the project name.');
     const lat = form.latitude === '' || form.latitude == null ? null : Number(form.latitude);
     const lon = form.longitude === '' || form.longitude == null ? null : Number(form.longitude);
     if (lat !== null && !(lat > 33 && lat < 38)) throw new Error('Latitude should be in Oklahoma (about 34 to 37).');
     if (lon !== null && !(lon > -104 && lon < -94)) throw new Error('Longitude should be in Oklahoma (about -103 to -94, negative).');
-    const [r] = await pool.query('INSERT INTO projects (job_no, name, client, client_emails, latitude, longitude) VALUES (?,?,?,?,?,?)',
-      [form.job_no, form.name, form.client || null, form.client_emails || null, lat, lon]);
+    const [r] = await pool.query('INSERT INTO projects (job_no, wo_no, name, client, client_emails, latitude, longitude) VALUES (?,?,?,?,?,?,?)',
+      [form.job_no, form.wo_no || null, form.name, form.client || null, form.client_emails || null, lat, lon]);
     res.redirect(`/projects/${r.insertId}/setup`);
   } catch (e) {
     const msg = e.code === 'ER_DUP_ENTRY' ? 'A project with that job number already exists.' : e.message;
@@ -68,7 +69,7 @@ router.get('/api/projects/:id/design', auth.requireLogin, async (req, res) => {
   const [lines] = await pool.query('SELECT id, item, source_layer, length_ft, points_json FROM project_lines WHERE project_id = ? ORDER BY id', [p.id]);
   const [sts] = await pool.query('SELECT id, kind, line_id, station_ft, x, y FROM project_structures WHERE project_id = ? ORDER BY id', [p.id]);
   res.json({
-    project: { id: p.id, job_no: p.job_no, name: p.name, has_curb: !!p.has_curb },
+    project: { id: p.id, job_no: p.job_no, wo_no: p.wo_no, name: p.name, has_curb: !!p.has_curb },
     viewBox: p.view_box ? JSON.parse(p.view_box) : null,
     background: p.background_json ? JSON.parse(p.background_json) : null,
     lines: lines.map((l) => ({ id: l.id, item: l.item, layer: l.source_layer, ft: Number(l.length_ft), pts: JSON.parse(l.points_json) })),
