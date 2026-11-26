@@ -166,7 +166,8 @@ router.get('/cron/weekly', async (req, res) => {
 // ---------- review pages ----------
 router.get('/reviews', auth.requireLogin, canView, async (req, res) => {
   const [[r]] = await pool.query("SELECT DATE_FORMAT(MAX(week_ending), '%Y-%m-%d') we FROM weekly_reports");
-  res.redirect(`/reviews/${r && r.we ? r.we : weekEndOf(lastWeekStart())}`);
+  const q = req.query.msg ? `?msg=${encodeURIComponent(req.query.msg)}` : '';
+  res.redirect(`/reviews/${r && r.we ? r.we : weekEndOf(lastWeekStart())}${q}`);
 });
 
 router.get('/reviews/:we', auth.requireLogin, canView, async (req, res, next) => {
@@ -185,7 +186,8 @@ router.get('/reviews/:we', auth.requireLogin, canView, async (req, res, next) =>
     <div class="card"><div class="head"><div><h1>Weekly reports</h1><div class="mute">Week of ${nice(ws)} – ${nice(we)}, ${we.slice(0, 4)}</div></div>
       <div style="display:flex;gap:8px"><a class="btn sm sec" href="/reviews/${R.addDays(we, -7)}">‹ Earlier week</a>${we < weekEndOf(lastWeekStart()) ? `<a class="btn sm sec" href="/reviews/${R.addDays(we, 7)}">Later week ›</a>` : ''}</div></div>
       ${req.query.msg ? `<p class="notice">${esc(req.query.msg)}</p>` : ''}
-      ${!mail.configured() ? '<p class="err">Email isn’t set up yet, so approved reports can’t be sent. See the setup notes.</p>' : ''}
+      ${!mail.configured() ? '<p class="err">Email isn’t set up yet, so approved reports can’t be sent. See the setup notes.</p>'
+        : '<form method="post" action="/mail/test" class="inline"><button class="btn sm sec">Send test email to me</button></form>'}
       ${approver ? '<p class="mute">Open each report, add any notes for the owner, and approve it. When every report for an owner is approved, that owner gets one email with a summary of the week and all of their reports attached (you’re copied).</p>'
         : '<p class="mute">Joe (reviewer) approves these. You can preview them here.</p>'}
     </div>
@@ -256,6 +258,17 @@ router.post('/reviews/:we/owners/:oid/send', auth.requireLogin, canApprove, asyn
   let msg;
   try { msg = `Emailed to ${(await sendOwner(Number(req.params.oid), req.params.we)).join(', ')}.`; } catch (e) { msg = e.message; }
   res.redirect(`/reviews/${req.params.we}?msg=${encodeURIComponent(msg)}`);
+});
+
+// Owner/admin/reviewer: send a test email to yourself to check the email setup.
+router.post('/mail/test', auth.requireLogin, canView, async (req, res) => {
+  let msg;
+  try {
+    await mail.send({ to: [req.session.user.email], subject: 'AAB Field – test email', text: 'Email from the field app is working. Weekly reports will go out from this address.',
+      attachments: [{ name: 'test.pdf', data: (() => { const { PDF } = require('./pdf'); const p = new PDF(); p.addPage(); p.text(40, 40, 'Test attachment from AAB Field', { size: 14 }); return p.build({ title: 'Test' }); })() }] });
+    msg = `Test email sent to ${req.session.user.email}.`;
+  } catch (e) { msg = `Test email failed: ${e.message}`; }
+  res.redirect(`/reviews?msg=${encodeURIComponent(msg)}`);
 });
 
 // Logs in a week whose report is approved or sent are locked.

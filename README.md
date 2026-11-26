@@ -50,10 +50,22 @@ On the design setup page (step 3), pick the DXF layer with the limits of clearin
 | Variable | Value |
 |---|---|
 | `CRON_KEY` | a long random string; also goes in the cron job's URL |
-| `SMTP_HOST`, `SMTP_PORT` | the mail server for reports@aabeng.com (587 = STARTTLS, 465 = SSL) |
-| `SMTP_USER`, `SMTP_PASS` | reports@aabeng.com and its password |
-| `MAIL_FROM` | reports@aabeng.com (defaults to `SMTP_USER`) |
+| `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` | the "AAB Field reports" app registration in Microsoft Entra (see below) |
+| `MAIL_FROM` | reports@aabeng.com |
+| (`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`) | only if not using Microsoft 365 |
 | `PUBLIC_URL` | https://cm.aabeng.com (default) |
+
+Email goes through Microsoft Graph, because Microsoft is switching off password sign-in for SMTP. The app registration gets **no** Graph permissions in Entra; instead Exchange's RBAC for Applications lets it send (and draft, for big attachments) only from reports@aabeng.com:
+
+```powershell
+Connect-ExchangeOnline
+New-ServicePrincipal -AppId <client id> -ObjectId <enterprise app object id> -DisplayName "AAB Field reports"
+New-ManagementScope -Name "AAB reports mailbox" -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'reports@aabeng.com'"
+New-ManagementRoleAssignment -App <client id> -Role "Application Mail.Send" -CustomResourceScope "AAB reports mailbox"
+New-ManagementRoleAssignment -App <client id> -Role "Application Mail.ReadWrite" -CustomResourceScope "AAB reports mailbox"
+Test-ServicePrincipalAuthorization -Identity <client id> -Resource reports@aabeng.com
+```
+Then **Reports → Send test email to me**. The client secret expires (24 months max); put a reminder on the calendar.
 
 cPanel → **Cron Jobs**, every hour: `curl -s "https://cm.aabeng.com/cron/weekly?key=YOUR_CRON_KEY" > /dev/null`
 

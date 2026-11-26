@@ -28,3 +28,35 @@ test('PDF writer makes a valid file with text, shapes and a photo', () => {
   assert.match(buf.slice(-6).toString(), /%%EOF/);
   assert.ok(pdf.wrap('one two three four five six', 40, 10).length > 1);
 });
+
+test('Microsoft 365 (Graph): small mail in one call, big attachments by upload session', async () => {
+  Object.assign(process.env, { GRAPH_TENANT_ID: 't', GRAPH_CLIENT_ID: 'c', GRAPH_CLIENT_SECRET: 's', MAIL_FROM: 'reports@aabeng.com' });
+  delete process.env.MAIL_DIR;
+  const calls = [];
+  const real = global.fetch;
+  global.fetch = async (url, o = {}) => {
+    calls.push([o.method, String(url).replace('https://graph.microsoft.com/v1.0', '')]);
+    const ok = (j, status = 200) => ({ ok: true, status, json: async () => j, text: async () => JSON.stringify(j) });
+    if (String(url).includes('oauth2')) return ok({ access_token: 'tok', expires_in: 3600 });
+    if (url.endsWith('/messages')) return ok({ id: 'm1' }, 201);
+    if (url.includes('createUploadSession')) return ok({ uploadUrl: 'https://upload.example/u' }, 201);
+    return ok(null, 202);
+  };
+  try {
+    await mail.send({ to: ['a@x.com'], subject: 's', text: 't', attachments: [{ name: 'a.pdf', data: Buffer.alloc(1000) }] });
+    assert.ok(calls.some(([m, u]) => m === 'POST' && u === '/users/reports%40aabeng.com/sendMail'));
+    calls.length = 0;
+    await mail.send({ to: ['a@x.com'], subject: 's', text: 't', attachments: [{ name: 'big.pdf', data: Buffer.alloc(7 * 1024 * 1024) }, { name: 'small.pdf', data: Buffer.alloc(1000) }] });
+    const urls = calls.map((c) => c[0] + ' ' + c[1]);
+    assert.ok(urls.includes('POST /users/reports%40aabeng.com/messages'));
+    assert.ok(urls.some((u) => u.includes('createUploadSession')));
+    assert.equal(urls.filter((u) => u.startsWith('PUT https://upload.example')).length, 3); // 7 MB in 3.2 MB pieces
+    assert.ok(urls.includes('POST /users/reports%40aabeng.com/messages/m1/send'));
+  } finally { global.fetch = real; for (const k of ['GRAPH_TENANT_ID', 'GRAPH_CLIENT_ID', 'GRAPH_CLIENT_SECRET', 'MAIL_FROM']) delete process.env[k]; }
+});
+
+test('very large sets of reports are split across emails', () => {
+  const mb = (n) => ({ name: n + '.pdf', data: Buffer.alloc(n * 1024 * 1024) });
+  assert.equal(mail._split([mb(8), mb(8), mb(8), mb(2)]).length, 2);
+  assert.equal(mail._split([mb(5)]).length, 1);
+});

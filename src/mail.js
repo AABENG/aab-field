@@ -1,5 +1,8 @@
-// Minimal SMTP sender with attachments (no packages to install).
-// Settings (cPanel environment variables):
+// Email with attachments, no packages to install. Two ways to send:
+//  1. Microsoft 365 through Microsoft Graph (preferred; Microsoft is switching
+//     off password SMTP sign-in): GRAPH_TENANT_ID, GRAPH_CLIENT_ID,
+//     GRAPH_CLIENT_SECRET, MAIL_FROM (the mailbox, e.g. reports@aabeng.com).
+//  2. Plain SMTP:
 //   SMTP_HOST, SMTP_PORT (587 = STARTTLS, 465 = TLS), SMTP_USER, SMTP_PASS,
 //   MAIL_FROM (defaults to SMTP_USER), MAIL_FROM_NAME (defaults to "AAB Engineering Reports")
 // With MAIL_DIR set instead (used in testing), messages are written there as .eml files.
@@ -14,7 +17,9 @@ const cfg = () => ({
   host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), user: process.env.SMTP_USER, pass: process.env.SMTP_PASS,
   from: process.env.MAIL_FROM || process.env.SMTP_USER, fromName: process.env.MAIL_FROM_NAME || 'AAB Engineering Reports', dir: process.env.MAIL_DIR,
 });
-const configured = () => { const c = cfg(); return !!(c.dir || (c.host && c.user && c.pass && c.from)); };
+const graphCfg = () => ({ tenant: process.env.GRAPH_TENANT_ID, id: process.env.GRAPH_CLIENT_ID, secret: process.env.GRAPH_CLIENT_SECRET, from: process.env.MAIL_FROM });
+const useGraph = () => { const g = graphCfg(); return !!(g.tenant && g.id && g.secret && g.from); };
+const configured = () => { const c = cfg(); return !!(c.dir || useGraph() || (c.host && c.user && c.pass && c.from)); };
 
 const b64 = (s) => Buffer.from(s).toString('base64');
 const wrap76 = (s) => s.replace(/.{1,76}/g, '$&\r\n');
@@ -84,8 +89,81 @@ function smtp(c, rcpts, data) {
   });
 }
 
+// ---------- Microsoft Graph ----------
+let tokenCache = null;
+async function graphToken() {
+  if (tokenCache && tokenCache.exp > Date.now() + 60000) return tokenCache.token;
+  const g = graphCfg();
+  const r = await fetch(`https://login.microsoftonline.com/${encodeURIComponent(g.tenant)}/oauth2/v2.0/token`, {
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'client_credentials', client_id: g.id, client_secret: g.secret, scope: 'https://graph.microsoft.com/.default' }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`Microsoft sign-in failed: ${j.error_description || j.error || r.status}`);
+  tokenCache = { token: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return tokenCache.token;
+}
+async function graph(method, url, body, headers = {}) {
+  const r = await fetch(url.startsWith('http') ? url : `https://graph.microsoft.com/v1.0${url}`, {
+    method, headers: { authorization: `Bearer ${await graphToken()}`, ...(body && !Buffer.isBuffer(body) ? { 'content-type': 'application/json' } : {}), ...headers },
+    body: body == null ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body),
+  });
+  if (!r.ok) { const t = await r.text(); let m = t; try { m = JSON.parse(t).error.message; } catch (e) { /* raw */ } throw new Error(`Microsoft 365 refused (${r.status}): ${m}`); }
+  return r.status === 204 || r.status === 202 ? null : r.json().catch(() => null);
+}
+const SMALL = 3 * 1024 * 1024; // Graph takes attachments under 3 MB inline
+async function sendGraph(o) {
+  const from = encodeURIComponent(graphCfg().from);
+  const rc = (list) => list.map((a) => ({ emailAddress: { address: a } }));
+  const message = { subject: o.subject, body: { contentType: o.html ? 'HTML' : 'Text', content: o.html || o.text }, toRecipients: rc(o.to), ccRecipients: rc(o.cc),
+    ...(o.replyTo ? { replyTo: rc([o.replyTo]) } : {}) };
+  const att = (a) => ({ '@odata.type': '#microsoft.graph.fileAttachment', name: a.name, contentType: a.type || 'application/pdf', contentBytes: a.data.toString('base64') });
+  const total = o.attachments.reduce((s, a) => s + a.data.length, 0);
+  if (total < SMALL) {
+    await graph('POST', `/users/${from}/sendMail`, { message: { ...message, attachments: o.attachments.map(att) }, saveToSentItems: true });
+    return;
+  }
+  // Larger: draft, attach (upload sessions for big files), then send.
+  const draft = await graph('POST', `/users/${from}/messages`, message);
+  for (const a of o.attachments) {
+    if (a.data.length < SMALL) { await graph('POST', `/users/${from}/messages/${draft.id}/attachments`, att(a)); continue; }
+    const up = await graph('POST', `/users/${from}/messages/${draft.id}/attachments/createUploadSession`,
+      { AttachmentItem: { attachmentType: 'file', name: a.name, size: a.data.length, contentType: a.type || 'application/pdf' } });
+    const CH = 320 * 1024 * 10; // 3.2 MB, a multiple of 320 KB
+    for (let i = 0; i < a.data.length; i += CH) {
+      const part = a.data.subarray(i, Math.min(a.data.length, i + CH));
+      const r = await fetch(up.uploadUrl, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', 'content-length': String(part.length), 'content-range': `bytes ${i}-${i + part.length - 1}/${a.data.length}` }, body: part });
+      if (!r.ok && r.status !== 201) throw new Error(`Attachment upload failed (${r.status})`);
+    }
+  }
+  await graph('POST', `/users/${from}/messages/${draft.id}/send`);
+}
+
+// Microsoft 365 rejects messages over ~35 MB, so big sets of reports go out in parts.
+const PART = 20 * 1024 * 1024;
+function split(attachments) {
+  const parts = [[]]; let size = 0;
+  for (const a of attachments) {
+    if (size + a.data.length > PART && parts[parts.length - 1].length) { parts.push([]); size = 0; }
+    parts[parts.length - 1].push(a); size += a.data.length;
+  }
+  return parts;
+}
+
 // opts: {to:[], cc:[], replyTo, subject, text, html, attachments:[{name, data, type}]}
 async function send(opts) {
+  const parts = split(opts.attachments || []);
+  if (parts.length === 1) return sendOne(opts);
+  let r;
+  for (let i = 0; i < parts.length; i++) {
+    const tag = ` (part ${i + 1} of ${parts.length})`, note = `Reports continued: part ${i + 1} of ${parts.length}.`;
+    r = await sendOne({ ...opts, subject: opts.subject + tag, attachments: parts[i],
+      text: i ? note : `${opts.text}\n(The reports are attached across ${parts.length} emails because of their size.)\n`,
+      html: opts.html && (i ? `<p>${note}</p>` : `${opts.html}<p style="color:#667">The reports are attached across ${parts.length} emails because of their size.</p>`) });
+  }
+  return r;
+}
+async function sendOne(opts) {
   const c = cfg();
   const to = addr(opts.to || []), cc = addr(opts.cc || []);
   if (!to.length) throw new Error('No recipients');
@@ -96,9 +174,10 @@ async function send(opts) {
     fs.writeFileSync(f, data);
     return { saved: f };
   }
-  if (!configured()) throw new Error('Email isn’t set up yet (SMTP settings missing)');
+  if (useGraph()) { await sendGraph({ ...opts, to, cc, attachments: opts.attachments || [] }); return { sent: true, via: 'graph' }; }
+  if (!configured()) throw new Error('Email isn’t set up yet (email settings missing)');
   await smtp(c, to.concat(cc), data);
   return { sent: true };
 }
 
-module.exports = { send, configured, _message: message };
+module.exports = { send, configured, _message: message, _split: split };
