@@ -67,7 +67,7 @@ test('owner adds a CO; CO can sign in but cannot manage users', async () => {
   const ok = await req('POST', '/login', { who: 'c', form: { email: 'co@aabeng.com', password: 'tempPassword1' } });
   assert.equal(ok.location, '/');
   const users = await req('GET', '/users', { who: 'c' });
-  assert.equal(users.status, 403);
+  assert.equal(users.status, 302); assert.equal(users.location, '/'); // COs only get the daily log
 });
 
 test('signed-out visitors are sent to sign in', async () => {

@@ -60,4 +60,20 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { ROLES, ROLE_LABELS, userCount, createUser, verify, requireLogin, requireRole, validPassword };
+// Construction observers only get the daily log: the project list (which
+// links straight to each log), the log page, and the data it reads and saves.
+const CO_ALLOWED = [
+  /^\/$/, /^\/login$/, /^\/logout$/, /^\/health$/, /^\/sw\.js$/, /^\/static\//, /^\/api\/me$/,
+  /^\/projects\/\d+\/log$/,
+  /^\/api\/projects\/\d+\/(design|field|weather)$/,
+  /^\/api\/projects\/\d+\/logs\/\d{4}-\d{2}-\d{2}(\/photos)?$/,
+  /^\/photos\/\d+$/, /^\/api\/photos\/\d+$/,
+];
+function fieldOnly(req, res, next) {
+  const u = req.session && req.session.user;
+  if (!u || u.role !== 'co' || CO_ALLOWED.some((re) => re.test(req.path))) return next();
+  if (req.path.startsWith('/api/')) return res.status(403).json({ error: 'Not allowed for your role' });
+  res.redirect('/');
+}
+
+module.exports = { fieldOnly, ROLES, ROLE_LABELS, userCount, createUser, verify, requireLogin, requireRole, validPassword };

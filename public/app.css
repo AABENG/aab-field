@@ -136,3 +136,11 @@ textarea{display:block;width:100%;margin-top:6px;border:1px solid var(--line2);b
 .fbar .in span{flex:0 1 auto;max-width:45%}
 .toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--card2);border:1px solid var(--line2);color:var(--ink);padding:10px 16px;border-radius:10px;font:12px "JetBrains Mono",monospace;letter-spacing:.04em;opacity:0;transition:opacity .2s;z-index:10;pointer-events:none;box-shadow:var(--shadow);max-width:90vw;text-align:center}
 .toast.show{opacity:1}
+
+/* CO home: job cards straight into the daily log */
+.jobcards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.jobcard { display: flex; flex-direction: column; gap: 4px; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--card2); text-decoration: none; color: inherit; }
+.jobcard b { font-size: 18px; }
+.jobcard span { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--mute); }
+.jobcard em { font-style: normal; margin-top: 8px; color: var(--accent2); font-weight: 600; }
+.jobcard:hover, .jobcard:active { border-color: var(--accent); }

@@ -50,6 +50,7 @@ function buildApp(store) {
     cookie: { httpOnly: true, sameSite: 'lax', secure: 'auto', maxAge: 30 * 24 * 3600 * 1000 },
   }));
   app.use(sameOrigin);
+  app.use(auth.fieldOnly);
 
   app.get('/health', async (req, res) => {
     try {
@@ -105,8 +106,9 @@ function buildApp(store) {
 
   // ---- signed-in pages ----
   app.get('/', auth.requireLogin, async (req, res) => {
-    const [list] = await pool.query('SELECT id, job_no, wo_no, name, client, status FROM projects ORDER BY status, job_no');
-    res.send(views.homePage({ user: req.session.user, projects: list }));
+    const co = req.session.user.role === 'co';
+    const [list] = await pool.query(`SELECT id, job_no, wo_no, name, client, status FROM projects ${co ? "WHERE status = 'active'" : ''} ORDER BY status, job_no`);
+    res.send(co ? views.coHomePage({ user: req.session.user, projects: list }) : views.homePage({ user: req.session.user, projects: list }));
   });
   app.get('/api/me', auth.requireLogin, (req, res) => res.json(req.session.user));
   app.use(projects);

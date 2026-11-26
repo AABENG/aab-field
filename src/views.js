@@ -6,7 +6,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
 function layout({ title, user, body, wide = false }) {
   const nav = user ? `
     <nav class="top">
-      <a href="/">Projects</a>
+      <a href="/">${user.role === 'co' ? 'Daily logs' : 'Projects'}</a>
       ${['owner', 'admin'].includes(user.role) ? '<a href="/users">Users</a>' : ''}
       <span class="who">${esc(user.name)}</span>
       <form method="post" action="/logout"><button class="link">Sign out</button></form>
@@ -72,6 +72,23 @@ function homePage({ user, projects }) {
     <div class="card">
       <div class="head"><h1>Projects</h1>${canSetup(user) ? '<a class="btn sm" href="/projects/new">New project</a>' : ''}</div>
       <table><thead><tr><th>Project</th><th>WO</th><th>Name</th><th>Client</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+    </div>` });
+}
+
+// What a construction observer sees after signing in: their active jobs,
+// each one opening straight into the daily log.
+function coHomePage({ user, projects }) {
+  const cards = projects.length ? projects.map((p) => `
+      <a class="jobcard" href="/projects/${p.id}/log">
+        <b>${esc(p.name)}</b>
+        <span>Project ${esc(p.job_no)}${p.wo_no ? ' · WO ' + esc(p.wo_no) : ''}</span>
+        <em>Open daily log →</em>
+      </a>`).join('')
+    : '<p class="mute">No active jobs yet. The office sets jobs up before they show here.</p>';
+  return layout({ title: 'Daily logs', user, body: `
+    <div class="card">
+      <div class="head"><h1>Daily logs</h1></div>
+      <div class="jobcards">${cards}</div>
     </div>` });
 }
 
@@ -251,4 +268,4 @@ function fieldPage({ user, project: p, mapsKey }) {
     <script>AABField.init(${p.id});</script>` });
 }
 
-module.exports = { fieldPage, esc, layout, loginPage, setupPage, homePage, usersPage, projectFormPage, projectPage, setupDesignPage, ITEM_NAMES, KIND_NAMES, PAVING_ITEMS };
+module.exports = { coHomePage, fieldPage, esc, layout, loginPage, setupPage, homePage, usersPage, projectFormPage, projectPage, setupDesignPage, ITEM_NAMES, KIND_NAMES, PAVING_ITEMS };
