@@ -68,7 +68,7 @@ router.get('/api/projects/:id/design', auth.requireLogin, async (req, res) => {
   const [lines] = await pool.query('SELECT id, item, source_layer, length_ft, points_json FROM project_lines WHERE project_id = ? ORDER BY id', [p.id]);
   const [sts] = await pool.query('SELECT id, kind, line_id, station_ft, x, y FROM project_structures WHERE project_id = ? ORDER BY id', [p.id]);
   res.json({
-    project: { id: p.id, job_no: p.job_no, name: p.name },
+    project: { id: p.id, job_no: p.job_no, name: p.name, has_curb: !!p.has_curb },
     viewBox: p.view_box ? JSON.parse(p.view_box) : null,
     background: p.background_json ? JSON.parse(p.background_json) : null,
     lines: lines.map((l) => ({ id: l.id, item: l.item, layer: l.source_layer, ft: Number(l.length_ft), pts: JSON.parse(l.points_json) })),
@@ -122,8 +122,9 @@ router.post('/api/projects/:id/design', auth.requireLogin, canSetup, express.jso
     }
     const bg = b.background && typeof b.background === 'object' ? b.background : {};
     const vb = Array.isArray(b.viewBox) && b.viewBox.length === 4 && b.viewBox.every(Number.isFinite) ? b.viewBox.map(r2) : null;
-    await conn.query('UPDATE projects SET view_box = ?, background_json = ?, status = IF(status = "setup", "active", status) WHERE id = ?',
-      [vb ? JSON.stringify(vb) : null, JSON.stringify(bg), p.id]);
+    const hasCurb = b.hasCurb === false ? 0 : 1;
+    await conn.query('UPDATE projects SET view_box = ?, background_json = ?, has_curb = ?, status = IF(status = "setup", "active", status) WHERE id = ?',
+      [vb ? JSON.stringify(vb) : null, JSON.stringify(bg), hasCurb, p.id]);
     await conn.commit();
     res.json({ ok: true, lines: lines.length, structures: kept, structuresDropped: dropped, totals: await designTotals(p.id) });
   } catch (e) {

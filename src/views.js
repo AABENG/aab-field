@@ -99,6 +99,8 @@ function usersPage({ user, users, roles, roleLabels, error, notice }) {
 }
 
 const ITEM_NAMES = { wl: 'Waterline', ss: 'Sanitary sewer', sd: 'Storm sewer', cl: 'Street centerline' };
+// Paving is tracked as three items measured along the street centerline.
+const PAVING_ITEMS = [['sg', 'Subgrade'], ['cb', 'Curb and gutter'], ['pv', 'Paving']];
 const KIND_NAMES = { mh: 'Sanitary manholes', st: 'Storm structures', fh: 'Fire hydrants', vv: 'Water valves' };
 
 function projectFormPage({ user, error, form = {} }) {
@@ -118,11 +120,18 @@ function projectFormPage({ user, error, form = {} }) {
     </div>` });
 }
 
-function totalsTable(totals) {
+function totalsTable(totals, hasCurb = true) {
   const rows = [];
-  for (const k of Object.keys(ITEM_NAMES)) {
+  for (const k of ['wl', 'ss', 'sd']) {
     const r = totals.lines.find((x) => x.item === k);
     if (r) rows.push(`<tr><td>${ITEM_NAMES[k]}</td><td class="n">${Math.round(Number(r.ft)).toLocaleString()} LF</td><td class="n mute">${r.n} line${r.n > 1 ? 's' : ''}</td></tr>`);
+  }
+  const cl = totals.lines.find((x) => x.item === 'cl');
+  if (cl) {
+    for (const [k, name] of PAVING_ITEMS) {
+      if (k === 'cb' && !hasCurb) continue;
+      rows.push(`<tr><td>${name}</td><td class="n">${Math.round(Number(cl.ft)).toLocaleString()} LF</td><td class="n mute">of street centerline</td></tr>`);
+    }
   }
   for (const k of Object.keys(KIND_NAMES)) {
     const r = totals.structures.find((x) => x.kind === k);
@@ -139,7 +148,7 @@ function projectPage({ user, project: p, totals }) {
       ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div>
     </div>
     <div class="cols">
-      <div class="card"><h2>Design quantities</h2>${totalsTable(totals)}</div>
+      <div class="card"><h2>Design quantities</h2>${totalsTable(totals, !!p.has_curb)}</div>
       <div class="card grow"><h2>Plan</h2><div id="plan" class="planbox" data-project="${p.id}"></div></div>
     </div>
     <script src="/static/js/plan.js"></script>
@@ -171,6 +180,7 @@ function setupDesignPage({ user, project: p, locked }) {
         <h2>3. Check the plan</h2>
         <p class="mute">Click a colored line to leave it out (it turns gray and dashed); click again to bring it back.</p>
         <div id="preview" class="planbox tall"></div>
+        <label class="chk" style="margin-top:10px"><input type="checkbox" id="hasCurb" checked> This project has curb and gutter <span class="mute">(paving is tracked as subgrade, curb and gutter, and paving along the street centerline; uncheck for streets without curb)</span></label>
         <div id="previewTotals" style="margin-top:10px"></div>
         <div style="margin-top:12px"><button class="btn" id="saveDesign">Save design</button> <span id="saveStatus" class="mute"></span></div>
       </div>
@@ -181,4 +191,4 @@ function setupDesignPage({ user, project: p, locked }) {
     <script>AABSetup.init(${p.id});</script>` });
 }
 
-module.exports = { esc, layout, loginPage, setupPage, homePage, usersPage, projectFormPage, projectPage, setupDesignPage, ITEM_NAMES, KIND_NAMES };
+module.exports = { esc, layout, loginPage, setupPage, homePage, usersPage, projectFormPage, projectPage, setupDesignPage, ITEM_NAMES, KIND_NAMES, PAVING_ITEMS };

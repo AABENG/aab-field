@@ -194,9 +194,17 @@
 
   function totals() {
     const rows = [];
-    for (const item of Object.keys(ITEM_NAMES)) {
+    for (const item of ['wl', 'ss', 'sd']) {
       const ls = design.lines.filter((l) => l.item === item && !l.excluded);
       if (ls.length) rows.push(`<tr><td>${ITEM_NAMES[item]}</td><td class="n">${Math.round(ls.reduce((s, l) => s + G.plen(l.pts), 0)).toLocaleString()} LF</td><td class="n mute">${ls.length} lines</td></tr>`);
+    }
+    const cl = design.lines.filter((l) => l.item === 'cl' && !l.excluded);
+    if (cl.length) {
+      const ft = Math.round(cl.reduce((s, l) => s + G.plen(l.pts), 0)).toLocaleString();
+      for (const [k, name] of [['sg', 'Subgrade'], ['cb', 'Curb and gutter'], ['pv', 'Paving']]) {
+        if (k === 'cb' && !$('hasCurb').checked) continue;
+        rows.push(`<tr><td>${name}</td><td class="n">${ft} LF</td><td class="n mute">of street centerline (${cl.length} lines)</td></tr>`);
+      }
     }
     for (const [kind, [item, label]] of Object.entries(KIND)) {
       const pts = G.dedupePoints(design.structures.filter((s) => s.kind === kind).map((s) => [s.x, s.y]));
@@ -252,7 +260,7 @@
     try {
       const r = await fetch(`/api/projects/${projectId}/design`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ viewBox: box, background: bg, lines, structures: design.structures }),
+        body: JSON.stringify({ viewBox: box, background: bg, lines, structures: design.structures, hasCurb: $('hasCurb').checked }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Save failed');
@@ -274,7 +282,10 @@
       const g = guessBoundary(closedLayers);
       $('boundary').innerHTML = `<option value="">(whole drawing)</option>` + closedLayers.map((n) => `<option ${n === g ? 'selected' : ''}>${esc(n)}</option>`).join('');
       tags.clear(); symTags.clear(); excluded.clear();
-      collect(); renderTable(); $('setupUI').classList.remove('hide'); preview();
+      collect(); renderTable();
+      // default the curb box from whether any curb layer exists in the drawing
+      $('hasCurb').checked = [...layers.keys()].some((n) => /BOC|CURB|FOC|GUTTER/i.test(n) && layers.get(n).lines.length);
+      $('setupUI').classList.remove('hide'); preview();
     });
     $('boundary').addEventListener('change', () => { tags.clear(); symTags.clear(); excluded.clear(); collect(); renderTable(); preview(); });
     $('margin').addEventListener('change', () => { excluded.clear(); collect(); renderTable(); preview(); });
@@ -291,6 +302,7 @@
       later(preview);
     });
     $('saveDesign').addEventListener('click', save);
+    $('hasCurb').addEventListener('change', totals);
   }
 
   root.AABSetup = { init, _guessLine: guessLine, _guessSym: guessSym };
