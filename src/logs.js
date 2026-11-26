@@ -7,6 +7,7 @@ const auth = require('./auth');
 const views = require('./views');
 const config = require('./config');
 const P = require('./progress');
+const A = require('../public/js/areas');
 const { weatherAt } = require('./weather');
 
 const router = express.Router();
@@ -56,8 +57,12 @@ router.get('/api/projects/:id/field', auth.requireLogin, fieldRoles, async (req,
       WHERE d.project_id = ? AND d.log_date BETWEEN ? AND ? ORDER BY d.log_date`, [p.id, from, to]);
   const ids = logs.map((l) => l.id);
   const [photos] = ids.length ? await pool.query('SELECT id, log_id, caption, taken_at FROM photos WHERE log_id IN (?) ORDER BY id', [ids]) : [[]];
+  const [areas] = await pool.query(
+    `SELECT DATE_FORMAT(d.log_date, '%Y-%m-%d') date, a.kind, a.pts_json FROM log_areas a JOIN daily_logs d ON d.id = a.log_id
+      WHERE d.project_id = ? ORDER BY a.id`, [p.id]);
   res.json({
     hasCurb: !!p.has_curb,
+    areas: areas.map((a) => ({ date: a.date, kind: a.kind, pts: json(a.pts_json, []) })),
     progress: prog.map((r) => ({ date: r.date, line_id: r.line_id, track: r.track, from: Number(r.from_ft), to: Number(r.to_ft) })),
     logs: logs.map((l) => ({
       date: l.date, author: l.author, check_in: l.check_in, crew: l.crew_count, no_crew: !!l.no_crew, weather: l.weather,
@@ -87,6 +92,13 @@ router.put('/api/projects/:id/logs/:date', auth.requireLogin, fieldRoles, async 
     const a = Math.max(0, Math.min(Number(r.from), Number(r.to))), z = Math.min(Number(L.length_ft) + 0.5, Math.max(Number(r.from), Number(r.to)));
     if (!(Number.isFinite(a) && Number.isFinite(z)) || z - a < 0.05) continue;
     rows.push({ date, line_id: L.id, track: r.track, from: a, to: z });
+  }
+  const areas = [];
+  for (const a of Array.isArray(b.areas) ? b.areas.slice(0, 50) : []) {
+    if (!['clear', 'earth'].includes(a.kind) || !Array.isArray(a.pts)) return res.status(400).json({ error: 'Bad area' });
+    const pts = a.pts.slice(0, 400).map((q) => [Number(q[0]), Number(q[1])]).filter((q) => Number.isFinite(q[0]) && Number.isFinite(q[1]));
+    if (pts.length < 3 || A.sqft(pts) < 1) continue;
+    areas.push({ kind: a.kind, pts: pts.map((q) => [+q[0].toFixed(2), +q[1].toFixed(2)]) });
   }
   const conn = await pool.getConnection();
   try {
@@ -119,6 +131,10 @@ router.put('/api/projects/:id/logs/:date', auth.requireLogin, fieldRoles, async 
     await conn.query('DELETE FROM log_progress WHERE log_id = ?', [logId]);
     for (const r of rows) {
       await conn.query('INSERT INTO log_progress (log_id, line_id, track, from_ft, to_ft) VALUES (?,?,?,?,?)', [logId, r.line_id, r.track, r.from.toFixed(2), r.to.toFixed(2)]);
+    }
+    await conn.query('DELETE FROM log_areas WHERE log_id = ?', [logId]);
+    for (const a of areas) {
+      await conn.query('INSERT INTO log_areas (log_id, kind, pts_json, sqft) VALUES (?,?,?,?)', [logId, a.kind, JSON.stringify(a.pts), A.sqft(a.pts).toFixed(1)]);
     }
     await conn.commit();
     res.json({ ok: true, logId });

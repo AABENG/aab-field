@@ -1,8 +1,8 @@
 // Lets the daily log open with no signal. Static files come from the cache
 // (refreshed in the background); pages and data try the network first and
 // fall back to the last copy. Saves are handled by the page's own outbox.
-const CACHE = 'aabfield-v1';
-const STATIC = ['/static/app.css', '/static/js/plan.js', '/static/js/field.js', '/static/js/proj4.js', '/static/js/geo.js', '/static/js/maps.js'];
+const CACHE = 'aabfield-v2';
+const STATIC = ['/static/app.css', '/static/js/plan.js', '/static/js/field.js', '/static/js/areas.js', '/static/js/proj4.js', '/static/js/geo.js', '/static/js/maps.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(STATIC)).then(() => self.skipWaiting()));

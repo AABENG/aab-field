@@ -252,11 +252,11 @@ function fieldPage({ user, project: p, mapsKey }) {
       <label style="margin-top:14px">Notes<textarea id="notes" placeholder="What the crew did today, where, any issues…"></textarea></label></div>
     <div class="card"><h2>Progress today</h2>
       <div class="chips" id="items"></div>
-      <p class="hint">Drag your finger along the selected line over what went in today; structures and fittings on that stretch are counted. Drag off the line to move the plan. Paving goes in order: subgrade, then curb, then paving.</p>
-      <div class="chips" style="margin-bottom:10px"><button class="chip on" data-mode="paint" type="button">Highlight</button><button class="chip" data-mode="erase" type="button">Erase</button><button class="chip" id="undoBtn" type="button">Undo</button></div>
+      <p class="hint" id="hint">Drag your finger along the selected line over what went in today; structures and fittings on that stretch are counted. Drag off the line to move the plan. Paving goes in order: subgrade, then curb, then paving.</p>
+      <div class="chips" style="margin-bottom:10px"><button class="chip on" data-mode="paint" type="button">Highlight</button><button class="chip" data-mode="erase" type="button">Erase</button><button class="chip" id="undoBtn" type="button">Undo</button><button class="chip on" id="finishBtn" type="button" hidden>Finish area</button></div>
       <div id="plan" class="planbox" data-project="${p.id}"></div>
       <div class="legend"><span><i style="background:var(--prior)"></i>Before today</span><span><i style="background:var(--today)"></i>Today</span><span><i id="remSw"></i>Remaining</span></div>
-      <div class="tot"><div><b id="todayFt">0 LF</b><small id="todayLbl">today</small></div><div><b id="todayEa">—</b><small>Structures today</small></div><div><b id="toDate">0%</b><small>Complete</small></div></div>
+      <div class="tot"><div><b id="todayFt">0 LF</b><small id="todayLbl">today</small></div><div><b id="todayEa">—</b><small id="todayEaLbl">Structures today</small></div><div><b id="toDate">0%</b><small id="toDateLbl">Complete</small></div></div>
     </div>
     <div class="card"><h2>Photos</h2>
       <label class="btn sec" style="display:inline-block;margin:0">Add photos<input type="file" id="photoIn" accept="image/*" multiple class="hide"></label>
@@ -264,7 +264,7 @@ function fieldPage({ user, project: p, mapsKey }) {
       <div class="note">Photos are shrunk to about 0.5 MB and tagged with the time and the phone’s location.</div></div>
     <div class="fbar"><div class="in"><span id="saveState" class="mute"></span><button class="btn" id="saveBtn" type="button">Save</button></div></div>
     <div class="toast" id="toast"></div>
-    ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script><script src="/static/js/field.js"></script>
+    ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script><script src="/static/js/areas.js"></script><script src="/static/js/field.js"></script>
     <script>AABField.init(${p.id});</script>` });
 }
 

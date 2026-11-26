@@ -128,7 +128,10 @@
       if (!moved) return;
       const f = scale(); vb[0] -= dx * f; vb[1] -= dy * f; drag = { x: e.clientX, y: e.clientY }; setVB();
     });
-    const up = () => { if (custom) { custom = false; opts.pointer.up(); } drag = null; setTimeout(() => { moved = false; }, 0); };
+    const up = (e) => {
+      if (custom) { custom = false; opts.pointer.up(); } else if (drag && !moved && opts.tap && e && e.clientX != null) opts.tap(dpt(e), scale());
+      drag = null; setTimeout(() => { moved = false; }, 0);
+    };
     window.addEventListener('pointerup', up);
 
     // ---- satellite view ----

@@ -46,9 +46,17 @@
 
   // ---------- state ----------
   let P, D, lines, lineById, items, plan;
-  const S = { date: todayStr(), week: null, item: 'ss', erase: false, online: navigator.onLine, outbox: [], drag: null, preview: null };
+  const S = { date: todayStr(), week: null, item: 'ss', erase: false, online: navigator.onLine, outbox: [], drag: null, preview: null, draft: null };
   const logs = new Map();   // date -> log object
   const prog = new Map();   // date -> Map("line|track" -> intervals)
+  const areaMap = new Map(); // date -> [{kind, pts}] (clearing and earthwork areas)
+  const AreaJS = root.AABAreas;
+  const acN = (sf) => (sf / AreaJS.SQFT_PER_ACRE).toFixed(2);
+  const ac = (sf) => acN(sf) + ' ac';
+  function dayAreas(date) { let a = areaMap.get(date); if (!a) areaMap.set(date, a = []); return a; }
+  function areasWhere(kind, test) { const out = []; for (const [d, a] of areaMap) if (test(d)) a.forEach((x) => { if (x.kind === kind) out.push(x.pts); }); return out; }
+  const snapshot = () => JSON.stringify({ p: [...dayMap(S.date)], a: dayAreas(S.date) });
+  function restore(j) { const o = JSON.parse(j); prog.set(S.date, new Map(o.p)); areaMap.set(S.date, o.a); }
 
   const key = (lineId, track) => lineId + '|' + track;
   function dayMap(date) { let m = prog.get(date); if (!m) prog.set(date, m = new Map()); return m; }
@@ -85,8 +93,22 @@
 
   // ---------- plan layers ----------
   function el(tag, attrs, parent) { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  const polyD = (pts) => pathD(pts) + ' Z';
+  function drawAreas(g, ftPerPx, it) {
+    const ink = { 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' };
+    const before = areasWhere(it.area, (d) => d < S.date);
+    if (it.area === 'clear') before.forEach((pts) => el('path', { ...ink, d: polyD(pts), fill: 'var(--prior)', 'fill-opacity': 0.16, stroke: 'var(--prior)', 'stroke-opacity': 0.5, 'stroke-width': 1 }, g));
+    else areasWhere('earth', (d) => d < S.date && d >= addDays(S.date, -6)).forEach((pts) => el('path', { ...ink, d: polyD(pts), fill: 'none', stroke: it.color, 'stroke-opacity': 0.45, 'stroke-width': 1, 'stroke-dasharray': '4 4' }, g));
+    dayAreas(S.date).filter((a) => a.kind === it.area).forEach((a) => el('path', { ...ink, d: polyD(a.pts), fill: it.color, 'fill-opacity': 0.35, stroke: it.color, 'stroke-width': 2.5 }, g));
+    const dr = S.draft;
+    if (dr && dr.pts.length) {
+      el('path', { ...ink, d: pathD(dr.pts), fill: dr.pts.length > 2 ? it.color : 'none', 'fill-opacity': 0.15, stroke: 'var(--today)', 'stroke-width': 2.5, 'stroke-dasharray': '6 4' }, g);
+      dr.pts.forEach((q, i) => el('circle', { cx: q[0], cy: -q[1], r: (i ? 4 : 7) * ftPerPx, fill: i ? 'var(--today)' : 'var(--map)', stroke: 'var(--today)', 'stroke-width': 2.5, 'vector-effect': 'non-scaling-stroke' }, g));
+    }
+  }
   function drawLayers(g, ftPerPx) {
     const it = items[S.item];
+    if (it.area) { drawAreas(g, ftPerPx, it); return; }
     const line = { fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'vector-effect': 'non-scaling-stroke' };
     for (const l of itemLines(it)) {
       const pr = before(S.date, l.id, it.track), td = ivDay(S.date, l.id, it.track);
@@ -108,6 +130,7 @@
   }
   function lineStyle(l) {
     const it = items[S.item];
+    if (it.area) return { width: 2, opacity: 0.3 };
     return l.item === it.item ? { width: 5, opacity: 0.45 } : { width: 2, opacity: 0.25 };
   }
 
@@ -120,8 +143,8 @@
   const pointer = {
     down(pt, ftPerPx) {
       const L = log(S.date);
-      if (L.no_crew) return false;
       const it = items[S.item];
+      if (L.no_crew || it.area) return false; // areas are drawn by tapping corners
       let best = null;
       for (const l of itemLines(it)) { const q = project(l, pt.x, pt.y); if (!best || q.d < best.d) best = { ...q, line: l.id }; }
       if (!best || best.d > 18 * ftPerPx) return false;
@@ -145,6 +168,36 @@
       apply(d.line, [Math.min(d.s0, d.s1), Math.max(d.s0, d.s1)]);
     },
   };
+  // Areas: tap the corners; tap the first corner (or Finish) to close it.
+  // In erase mode a tap inside one of today's areas removes it.
+  function tap(pt, ftPerPx) {
+    const it = items[S.item]; if (!it.area) return;
+    const L = log(S.date);
+    if (L.no_crew) { toast('This day is marked no crew on site'); return; }
+    if (S.erase) {
+      const list = dayAreas(S.date), i = list.findIndex((a) => a.kind === it.area && AreaJS.inside(a.pts, pt.x, pt.y));
+      if (i < 0) { toast('Tap inside one of today’s areas to remove it'); return; }
+      L.hist.push(snapshot()); list.splice(i, 1); changed(); return;
+    }
+    if (!S.draft) S.draft = { kind: it.area, pts: [] };
+    const f = S.draft.pts[0];
+    if (S.draft.pts.length >= 3 && Math.hypot(pt.x - f[0], pt.y - f[1]) < 16 * ftPerPx) { finishArea(); return; }
+    S.draft.pts.push([pt.x, pt.y]);
+    render();
+  }
+  function finishArea() {
+    const d = S.draft; if (!d) return;
+    if (d.pts.length < 3) { toast('Tap at least three corners'); return; }
+    const L = log(S.date), it = items[S.item];
+    L.hist.push(snapshot());
+    dayAreas(S.date).push({ kind: d.kind, pts: d.pts.map((q) => [+q[0].toFixed(2), +q[1].toFixed(2)]) });
+    S.draft = null;
+    if (!L.work.includes(it.work)) L.work.push(it.work);
+    toast(`${it.name} area added · ${ac(AreaJS.sqft(d.pts))}`);
+    changed();
+  }
+  function dropDraft() { if (S.draft && S.draft.pts.length) toast('Unfinished area dropped'); S.draft = null; }
+
   function apply(lineId, v) {
     const it = items[S.item], L = log(S.date), track = it.track;
     let pieces = [v];
@@ -160,7 +213,7 @@
       if (!len(pieces)) { toast(`Can’t erase: ${DEPS()[track].map((x) => NAMEOF[x].toLowerCase()).join(' / ')} is recorded on top of it`); render(); return; }
       if (v[1] - v[0] - len(pieces) > 2) toast(`Kept the part with ${DEPS()[track].map((x) => NAMEOF[x].toLowerCase()).join(' / ')} on top`);
     }
-    L.hist.push(JSON.stringify([...dayMap(S.date)]));
+    L.hist.push(snapshot());
     let cur = ivDay(S.date, lineId, track);
     pieces.forEach((pc) => { cur = S.erase ? subtract(cur, pc) : union(cur.concat([pc])); });
     dayMap(S.date).set(key(lineId, track), minus(cur, before(S.date, lineId, track)));
@@ -190,6 +243,28 @@
     // items + stats
     $('items').innerHTML = Object.entries(items).map(([k, x]) => `<button type="button" class="chip ${k === S.item ? 'on' : ''}" data-i="${k}"><i style="background:${x.color}"></i>${x.name}</button>`).join('');
     $('remSw').style.background = it.color;
+    $('finishBtn').hidden = !(it.area && S.draft);
+    $('finishBtn').disabled = !(S.draft && S.draft.pts.length >= 3);
+    $('hint').textContent = it.area
+      ? (S.erase ? 'Tap inside one of today’s areas to remove it.' : `Tap the corners of the ${it.area === 'clear' ? 'ground cleared' : 'area where dirt work went on'} today, then tap the first corner or Finish. Drag to move the plan.`)
+      : 'Drag your finger along the selected line over what went in today; structures and fittings on that stretch are counted. Drag off the line to move the plan. Paving goes in order: subgrade, then curb, then paving.';
+    $('undoBtn').disabled = !L.hist.length && !S.draft;
+    if (it.area) {
+      const today = dayAreas(S.date).filter((a) => a.kind === it.area).map((a) => a.pts);
+      if (it.area === 'clear') {
+        const prior = AreaJS.unionSqft(areasWhere('clear', (d) => d < S.date)), thru = AreaJS.unionSqft(areasWhere('clear', (d) => d <= S.date));
+        $('todayFt').textContent = acN(Math.max(0, thru - prior)); $('todayLbl').textContent = 'Acres cleared today';
+        $('toDate').textContent = acN(thru); $('toDateLbl').textContent = 'Acres to date';
+      } else {
+        $('todayFt').textContent = acN(AreaJS.unionSqft(today)); $('todayLbl').textContent = 'Acres worked today';
+        $('toDate').textContent = acN(AreaJS.unionSqft(areasWhere('earth', (d) => d <= S.date))); $('toDateLbl').textContent = 'Acres to date';
+      }
+      $('todayEa').textContent = String(today.length); $('todayEaLbl').textContent = 'Areas today';
+      $('photos').innerHTML = L.photos.map((ph, i) => `<div class="ph"><img src="${ph.id ? '/photos/' + ph.id : ph.data}" alt="">${ph.id ? '' : '<em>waiting</em>'}<button type="button" data-ph="${i}" title="Remove">×</button></div>`).join('');
+      renderBar(); if (plan) plan.refresh();
+      return;
+    }
+    $('todayEaLbl').textContent = 'Structures today'; $('toDateLbl').textContent = 'Complete';
     const ils = itemLines(it);
     const today_ft = ils.reduce((s, l) => s + len(ivDay(S.date, l.id, it.track)), 0);
     const total = ils.reduce((s, l) => s + l.len, 0), done = ils.reduce((s, l) => s + len(through(S.date, l.id, it.track)), 0);
@@ -197,7 +272,6 @@
     $('toDate').textContent = total ? Math.round(100 * done / total) + '%' : '—';
     const sts = it.track === 'line' ? D.structures.filter((s) => KIND_ITEM[s.kind] === it.item) : [];
     $('todayEa').textContent = it.track === 'line' ? String(sts.filter((s) => structureState(s) === 'today').length) : '—';
-    $('undoBtn').disabled = !L.hist.length;
     // photos
     $('photos').innerHTML = L.photos.map((ph, i) => `<div class="ph"><img src="${ph.id ? '/photos/' + ph.id : ph.data}" alt="">${ph.id ? '' : '<em>waiting</em>'}<button type="button" data-ph="${i}" title="Remove">×</button></div>`).join('');
     renderBar();
@@ -221,7 +295,7 @@
   // Unsaved or not-yet-uploaded days are kept on the phone across reloads.
   function saveDrafts() {
     const out = {};
-    for (const [d, L] of logs) if (L.dirty || L.pending) out[d] = { log: { ...L, hist: [] }, prog: [...dayMap(d)] };
+    for (const [d, L] of logs) if (L.dirty || L.pending) out[d] = { log: { ...L, hist: [] }, prog: [...dayMap(d)], areas: dayAreas(d) };
     return idb.set('draft:' + P.id, out).catch(() => {});
   }
 
@@ -245,7 +319,7 @@
     const L = log(date), rows = [];
     for (const [k, iv] of dayMap(date)) { const [line_id, track] = k.split('|'); iv.forEach(([a, b]) => rows.push({ line_id: +line_id, track, from: +a.toFixed(2), to: +b.toFixed(2) })); }
     return { check_in: L.check_in, crew: L.crew, no_crew: L.no_crew, weather: L.weather, rain_in: L.rain_in, weather_edited: L.weather_edited,
-      equipment: L.equipment, work: L.work, notes: L.notes, progress: rows };
+      equipment: L.equipment, work: L.work, notes: L.notes, progress: rows, areas: dayAreas(date) };
   }
   async function save() {
     const date = S.date, L = log(date);
@@ -328,7 +402,7 @@
 
   // ---------- misc ----------
   let tt; function toast(m) { const t = $('toast'); t.textContent = m; t.classList.add('show'); clearTimeout(tt); tt = setTimeout(() => t.classList.remove('show'), 3200); }
-  function selectDay(d) { S.date = d; render(); autoWeather(false); }
+  function selectDay(d) { dropDraft(); S.date = d; render(); autoWeather(false); }
 
   function bind() {
     $('days').addEventListener('click', (e) => { const b = e.target.closest('.day'); if (b && !b.disabled) selectDay(b.dataset.d); });
@@ -344,9 +418,13 @@
     }));
     $('check_in').addEventListener('change', () => autoWeather(true));
     $('no_crew').onclick = () => { const L = log(S.date); L.no_crew = !L.no_crew; if (L.no_crew) { L.crew = '0'; if (!L.notes) L.notes = 'No crew on site.'; } changed(); };
-    $('items').onclick = (e) => { const b = e.target.closest('.chip'); if (b) { S.item = b.dataset.i; render(); } };
-    document.querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => { S.erase = b.dataset.mode === 'erase'; document.querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x === b)); });
-    $('undoBtn').onclick = () => { const L = log(S.date); if (L.hist.length) { prog.set(S.date, new Map(JSON.parse(L.hist.pop()))); changed(); } };
+    $('items').onclick = (e) => { const b = e.target.closest('.chip'); if (b && b.dataset.i !== S.item) { dropDraft(); S.item = b.dataset.i; render(); } };
+    document.querySelectorAll('[data-mode]').forEach((b) => b.onclick = () => { S.erase = b.dataset.mode === 'erase'; if (S.erase) dropDraft(); document.querySelectorAll('[data-mode]').forEach((x) => x.classList.toggle('on', x === b)); render(); });
+    $('undoBtn').onclick = () => {
+      if (S.draft) { S.draft.pts.pop(); if (!S.draft.pts.length) S.draft = null; render(); return; }
+      const L = log(S.date); if (L.hist.length) { restore(L.hist.pop()); changed(); }
+    };
+    $('finishBtn').onclick = finishArea;
     $('photoIn').onchange = (e) => { addPhotos(e.target.files); e.target.value = ''; };
     $('photos').onclick = (e) => { const b = e.target.closest('[data-ph]'); if (b) removePhoto(+b.dataset.ph); };
     $('saveBtn').onclick = save;
@@ -361,7 +439,7 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
       // keep a copy of this page and its data so it opens with no signal next time
-      navigator.serviceWorker.ready.then(() => caches.open('aabfield-v1')).then((c) =>
+      navigator.serviceWorker.ready.then(() => caches.open('aabfield-v2')).then((c) =>
         c.addAll([location.pathname, `/api/projects/${projectId}/design`, `/api/projects/${projectId}/field`])).catch(() => {});
     }
     S.week = monday(S.date);
@@ -371,7 +449,10 @@
     } catch (e) { toast('Couldn’t load the project — check signal and reload'); return; }
     P = { id: projectId, ...D.project };
     lines = D.lines; lines.forEach(prep); lineById = new Map(lines.map((l) => [l.id, l]));
-    items = {};
+    items = {
+      clear: { name: 'Clearing', area: 'clear', color: 'var(--clear)', work: 'Tree clearing' },
+      earth: { name: 'Earthwork', area: 'earth', color: 'var(--earth)', work: 'Earthwork' },
+    };
     const hasItem = (i) => lines.some((l) => l.item === i);
     if (hasItem('wl')) items.wl = { name: 'Waterline', item: 'wl', track: 'line', color: 'var(--wl)', work: 'Waterline' };
     if (hasItem('ss')) items.ss = { name: 'Sanitary', item: 'ss', track: 'line', color: 'var(--ss)', work: 'Sanitary' };
@@ -381,17 +462,18 @@
       if (P.has_curb) items.cb = { name: 'Curb', item: 'cl', track: 'cb', color: 'var(--cb)', work: 'Curb' };
       items.pv = { name: 'Paving', item: 'cl', track: 'pv', color: 'var(--pv)', work: 'Paving' };
     }
-    S.item = items.ss ? 'ss' : Object.keys(items)[0];
+    S.item = items.ss ? 'ss' : Object.keys(items).find((k) => !items[k].area) || 'clear';
     // server data
     for (const r of field.progress) { const m = dayMap(r.date), k = key(r.line_id, r.track); m.set(k, union((m.get(k) || []).concat([[r.from, r.to]]))); }
+    for (const a of field.areas || []) dayAreas(a.date).push({ kind: a.kind, pts: a.pts });
     for (const l of field.logs) logs.set(l.date, { ...blankLog(l.date), ...l, crew: l.crew ?? '', rain_in: l.rain_in == null ? '' : Number(l.rain_in).toFixed(2), saved: true });
     // phone-side drafts and waiting uploads override the server copy
     const drafts = (await idb.get('draft:' + projectId).catch(() => null)) || {};
-    for (const [d, x] of Object.entries(drafts)) { logs.set(d, { ...blankLog(d), ...x.log, hist: [] }); prog.set(d, new Map(x.prog)); }
+    for (const [d, x] of Object.entries(drafts)) { logs.set(d, { ...blankLog(d), ...x.log, hist: [] }); prog.set(d, new Map(x.prog)); areaMap.set(d, x.areas || []); }
     S.outbox = (await idb.get('outbox:' + projectId).catch(() => null)) || [];
     bind();
     plan = root.AABPlan.render($('plan'), { viewBox: D.viewBox, background: D.background || {}, labels: (D.background || {}).labels, lines, structures: D.structures, crs: P.crs },
-      { legend: false, layers: drawLayers, structureState, lineStyle, pointer, toast });
+      { legend: false, layers: drawLayers, structureState, lineStyle, pointer, tap, toast });
     render();
     autoWeather(false);
     flush(false);

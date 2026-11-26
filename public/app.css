@@ -3,7 +3,7 @@
   --ink:#e9eefb;--mute:#8592b0;--accent:#2f7cf6;--accent2:#6ea3ff;--glow:rgba(47,124,246,.45);
   --ok:#3ddc84;--warn:#ffb020;--err:#ff6b6b;
   --today:#ffb020;--prior:#e9eefb;
-  --wl:#4da3ff;--ss:#3ddc84;--sd:#ff7a45;--cl:#9aa6bd;--sg:#c58c55;--cb:#dfe6f3;--pv:#8c9bb8;
+  --clear:#e6d34f;--earth:#b48cff;--wl:#4da3ff;--ss:#3ddc84;--sd:#ff7a45;--cl:#9aa6bd;--sg:#c58c55;--cb:#dfe6f3;--pv:#8c9bb8;
   --map:#060b16;--lots:#17233b;--row:#2a3b5e;--curb:#1f2e4d;--plat:#3e5a8f;--svc:#173d2c;--label:#4a5a7e;
   --grid:rgba(90,130,210,.07);--shadow:0 10px 30px rgba(0,0,0,.35);
 }
@@ -11,7 +11,7 @@
   --bg:#eef1f7;--bg2:#ffffff;--card:#ffffff;--card2:#f6f8fc;--line:#dbe1ec;--line2:#c5cfe0;
   --ink:#0d1526;--mute:#5a6684;--accent:#1f66e0;--accent2:#1f66e0;--glow:rgba(31,102,224,.25);
   --ok:#14804a;--warn:#b26a00;--today:#e08a00;--prior:#0d1526;
-  --wl:#1f6fd1;--ss:#1f9a4a;--sd:#d1491f;--cl:#6b7280;--sg:#9a6a36;--cb:#7e8aa3;--pv:#3b4660;
+  --clear:#9c8500;--earth:#7a4fd6;--wl:#1f6fd1;--ss:#1f9a4a;--sd:#d1491f;--cl:#6b7280;--sg:#9a6a36;--cb:#7e8aa3;--pv:#3b4660;
   --map:#ffffff;--lots:#dde2ea;--row:#a9b2c3;--curb:#c4cad6;--plat:#5a6b8f;--svc:#b9dcc4;--label:#8a92a3;
   --grid:rgba(31,102,224,.05);--shadow:0 6px 18px rgba(20,30,60,.08);
 }
@@ -144,3 +144,14 @@ textarea{display:block;width:100%;margin-top:6px;border:1px solid var(--line2);b
 .jobcard span { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--mute); }
 .jobcard em { font-style: normal; margin-top: 8px; color: var(--accent2); font-weight: 600; }
 .jobcard:hover, .jobcard:active { border-color: var(--accent); }
+
+/* Phones: keep the header to one short row and the stat figures inside their boxes */
+@media (max-width:600px){
+  header.bar .in{flex-wrap:nowrap;gap:10px;padding:8px 12px}
+  .brand{font-size:16px;letter-spacing:.1em}
+  .brand svg{width:30px;height:30px}
+  nav.top{flex-wrap:nowrap;gap:12px;min-width:0;overflow-x:auto}
+  nav.top a,button.link{font-size:10px;letter-spacing:.12em;white-space:nowrap}
+  nav.top .who{display:none}
+  .tot b{font-size:21px}
+}
