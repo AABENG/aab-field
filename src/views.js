@@ -185,7 +185,7 @@ function projectPage({ user, project: p, totals, mapsKey }) {
     </div>
     <div class="cols">
       <div class="card"><h2>Design quantities</h2>${totalsTable(totals, !!p.has_curb)}</div>
-      <div class="card grow"><h2>Plan</h2><div id="plan" class="planbox" data-project="${p.id}"></div></div>
+      <div class="card grow"><h2>Plan</h2><div class="planwrap"><div id="plan" class="planbox" data-project="${p.id}"></div><button class="btn finishfab" id="finishBtn" type="button" hidden>Finish area</button></div></div>
     </div>
     ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script>
     <script>AABPlan.mount(document.getElementById('plan'));</script>` });
@@ -253,8 +253,8 @@ function fieldPage({ user, project: p, mapsKey }) {
     <div class="card"><h2>Progress today</h2>
       <div class="chips" id="items"></div>
       <p class="hint" id="hint">Drag your finger along the selected line over what went in today; structures and fittings on that stretch are counted. Drag off the line to move the plan. Paving goes in order: subgrade, then curb, then paving.</p>
-      <div class="chips" style="margin-bottom:10px"><button class="chip on" data-mode="paint" type="button">Highlight</button><button class="chip" data-mode="erase" type="button">Erase</button><button class="chip" id="undoBtn" type="button">Undo</button><button class="chip on" id="finishBtn" type="button" hidden>Finish area</button></div>
-      <div id="plan" class="planbox" data-project="${p.id}"></div>
+      <div class="chips" style="margin-bottom:10px"><button class="chip on" data-mode="paint" type="button">Highlight</button><button class="chip" data-mode="erase" type="button">Erase</button><button class="chip" id="undoBtn" type="button">Undo</button></div>
+      <div class="planwrap"><div id="plan" class="planbox" data-project="${p.id}"></div><button class="btn finishfab" id="finishBtn" type="button" hidden>Finish area</button></div>
       <div class="legend"><span><i style="background:var(--prior)"></i>Before today</span><span><i style="background:var(--today)"></i>Today</span><span><i id="remSw"></i>Remaining</span></div>
       <div class="tot"><div><b id="todayFt">0 LF</b><small id="todayLbl">today</small></div><div><b id="todayEa">—</b><small id="todayEaLbl">Structures today</small></div><div><b id="toDate">0%</b><small id="toDateLbl">Complete</small></div></div>
     </div>

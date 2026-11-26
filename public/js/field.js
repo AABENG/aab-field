@@ -98,7 +98,6 @@
     const ink = { 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' };
     const before = areasWhere(it.area, (d) => d < S.date);
     if (it.area === 'clear') before.forEach((pts) => el('path', { ...ink, d: polyD(pts), fill: 'var(--prior)', 'fill-opacity': 0.16, stroke: 'var(--prior)', 'stroke-opacity': 0.5, 'stroke-width': 1 }, g));
-    else areasWhere('earth', (d) => d < S.date && d >= addDays(S.date, -6)).forEach((pts) => el('path', { ...ink, d: polyD(pts), fill: 'none', stroke: it.color, 'stroke-opacity': 0.45, 'stroke-width': 1, 'stroke-dasharray': '4 4' }, g));
     dayAreas(S.date).filter((a) => a.kind === it.area).forEach((a) => el('path', { ...ink, d: polyD(a.pts), fill: it.color, 'fill-opacity': 0.35, stroke: it.color, 'stroke-width': 2.5 }, g));
     const dr = S.draft;
     if (dr && dr.pts.length) {
@@ -235,7 +234,7 @@
     }).join('');
     // form
     ['check_in', 'crew', 'weather', 'rain_in', 'notes'].forEach((id) => { if (document.activeElement !== $(id)) $(id).value = L[id] ?? ''; });
-    $('wxsrc').textContent = L.weather_edited ? '● Edited by CO' : L.weather ? '● From National Weather Service' : '';
+    $('wxsrc').textContent = L.weather_edited ? '● Edited by CO' : L.weather || L.rain_in !== '' ? '● Conditions: National Weather Service · Rain: Iowa Environmental Mesonet (NOAA radar + gauges)' : '';
     $('wxsrc').className = 'auto' + (L.weather_edited ? ' edit' : '');
     [...$('equip').children].forEach((b) => b.classList.toggle('on', L.equipment.includes(b.textContent)));
     [...$('work').children].forEach((b) => b.classList.toggle('on', L.work.includes(b.textContent)));
@@ -257,14 +256,15 @@
         $('toDate').textContent = acN(thru); $('toDateLbl').textContent = 'Acres to date';
       } else {
         $('todayFt').textContent = acN(AreaJS.unionSqft(today)); $('todayLbl').textContent = 'Acres worked today';
-        $('toDate').textContent = acN(AreaJS.unionSqft(areasWhere('earth', (d) => d <= S.date))); $('toDateLbl').textContent = 'Acres to date';
+
       }
       $('todayEa').textContent = String(today.length); $('todayEaLbl').textContent = 'Areas today';
+      $('toDate').parentElement.hidden = it.area === 'earth'; // earthwork is day by day, no running total
       $('photos').innerHTML = L.photos.map((ph, i) => `<div class="ph"><img src="${ph.id ? '/photos/' + ph.id : ph.data}" alt="">${ph.id ? '' : '<em>waiting</em>'}<button type="button" data-ph="${i}" title="Remove">×</button></div>`).join('');
       renderBar(); if (plan) plan.refresh();
       return;
     }
-    $('todayEaLbl').textContent = 'Structures today'; $('toDateLbl').textContent = 'Complete';
+    $('todayEaLbl').textContent = 'Structures today'; $('toDateLbl').textContent = 'Complete'; $('toDate').parentElement.hidden = false;
     const ils = itemLines(it);
     const today_ft = ils.reduce((s, l) => s + len(ivDay(S.date, l.id, it.track)), 0);
     const total = ils.reduce((s, l) => s + l.len, 0), done = ils.reduce((s, l) => s + len(through(S.date, l.id, it.track)), 0);
@@ -308,7 +308,7 @@
       if (!r.ok) return;
       const w = await r.json();
       const X = log(date); if (X.weather_edited) return;
-      X.weather = w.text; X.rain_in = w.rain_in.toFixed(2);
+      if (w.text) X.weather = w.text; X.rain_in = w.rain_in == null ? X.rain_in : w.rain_in.toFixed(2);
       if (X.saved && !X.dirty) X.dirty = true;
       if (date === S.date) render();
     } catch (e) { /* stays blank; CO can type it */ }
@@ -473,7 +473,7 @@
     S.outbox = (await idb.get('outbox:' + projectId).catch(() => null)) || [];
     bind();
     plan = root.AABPlan.render($('plan'), { viewBox: D.viewBox, background: D.background || {}, labels: (D.background || {}).labels, lines, structures: D.structures, crs: P.crs },
-      { legend: false, layers: drawLayers, structureState, lineStyle, pointer, tap, toast });
+      { legend: false, layers: drawLayers, structureState, lineStyle, pointer, tap, toast, showStructures: () => !items[S.item].area });
     render();
     autoWeather(false);
     flush(false);

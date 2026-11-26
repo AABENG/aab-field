@@ -40,11 +40,13 @@
       for (const t of data.labels) { const x = el('text', { x: t.x, y: -t.y, 'font-size': t.s || 8 }, lg); x.textContent = t.t; }
     }
     const lg = el('g', onSat ? { style: 'filter:drop-shadow(0 0 2px rgba(0,0,0,.9))' } : {}, g);
+    const drawn = [];
     data.lines.forEach((l, i) => {
       const off = l.excluded;
       const st = opts.lineStyle ? opts.lineStyle(l) : null;
       const p = el('path', { ...ns, d: d(l.pts), stroke: off ? 'var(--mute)' : COLORS[l.item] || 'var(--ink)', 'stroke-width': st ? st.width : off ? 1.5 : 3,
         'stroke-dasharray': off ? '6 5' : 'none', opacity: st ? st.opacity : off ? 0.8 : 0.95 }, lg);
+      drawn.push([l, p]);
       if (opts.onLineClick && !onSat) {
         const hit = el('path', { ...ns, d: d(l.pts), stroke: 'transparent', 'stroke-width': 14, style: 'cursor:pointer;pointer-events:stroke' }, lg);
         hit.addEventListener('click', (e) => { if (!opts._moved()) opts.onLineClick(i, e); });
@@ -56,10 +58,14 @@
     const sg = el('g', {}, g);
     const gps = el('g', {}, g);
     return {
-      extra(ftPerPx) { if (opts.layers) { xg.innerHTML = ''; opts.layers(xg, ftPerPx); } },
+      extra(ftPerPx) {
+        if (opts.lineStyle) drawn.forEach(([l, p]) => { const st = opts.lineStyle(l); p.setAttribute('stroke-width', st.width); p.setAttribute('opacity', st.opacity); });
+        if (opts.layers) { xg.innerHTML = ''; opts.layers(xg, ftPerPx); }
+      },
       // r0 = symbol radius in drawing feet for the current zoom
       structures(r0) {
         sg.innerHTML = '';
+        if (opts.showStructures && !opts.showStructures()) return;
         for (const s of data.structures || []) {
           const [item, shape] = ST[s.kind] || ['ss', 'circle'];
           const c = COLORS[item], r = shape === 'small' ? r0 * 0.7 : r0, x = s.x, y = -s.y;

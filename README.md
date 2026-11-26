@@ -27,11 +27,11 @@ Runs at **https://cm.aabeng.com** on the GoDaddy cPanel account, as a cPanel Nod
 ## Release 1, step 3 (daily log on the phone)
 
 - **Daily log** button on each project opens the field page: pick a day in the week (Mon–Sat), fill conditions, equipment, work, notes.
-- Weather and 24-hour rain fill in from the National Weather Service for the site location and check-in time; the CO can overwrite them and the log shows that it was edited.
+- Conditions fill in from the nearest National Weather Service station, and 24-hour rain (ending at check-in) from the Iowa Environmental Mesonet's radar-plus-gauge service read at the site itself; the CO can overwrite them and the log shows that it was edited.
 - Progress: pick an item and drag a finger along the line. Structures and fittings on that stretch are counted automatically. Undo and erase are there for mistakes.
 - Paving is three items on the street centerline — subgrade, curb (if the project has curb), paving — and each has to sit on the one before it. The phone clips a highlight to what's allowed and the server refuses anything out of order.
 - Photos are shrunk on the phone to about 1600 px and tagged with the time and location. Uploaded photos are stored outside the web folder (`UPLOAD_DIR`, default `../aab-field-uploads`).
-- **Clearing** and **Earthwork** areas: tap the corners of the ground cleared, or where dirt work went on, that day; tap the first corner (or Finish) to close it. Clearing adds up to a running total of cleared acres (overlaps counted once); earthwork is shown day by day with the last week's areas dashed.
+- **Clearing** and **Earthwork** areas: tap the corners of the ground cleared, or where dirt work went on, that day; tap the first corner (or Finish) to close it. Clearing adds up to a running total of cleared acres (overlaps counted once); earthwork shows only where dirt work is going on that day (no running total).
 - CO logins only reach this page: they land on a list of active jobs that opens straight into each daily log.
 - With no signal, the page still opens (once it has been opened on that phone) and saves go into a waiting list on the phone that uploads when signal returns.
 
