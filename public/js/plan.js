@@ -3,9 +3,9 @@
 (function (root) {
   'use strict';
   const NS = 'http://www.w3.org/2000/svg';
-  const COLORS = { wl: '#1f6fd1', ss: '#2e9e44', sd: '#d1491f', cl: '#6b7280' };
+  const COLORS = { wl: 'var(--wl)', ss: 'var(--ss)', sd: 'var(--sd)', cl: 'var(--cl)' };
   const NAMES = { wl: 'Waterline', ss: 'Sanitary', sd: 'Storm', cl: 'Street centerline' };
-  const BG = { lots: ['#d3d7df', 0.8], row: ['#aab0bb', 1], curb: ['#c3c7cf', 0.8], other: ['#e2e4ea', 0.6] };
+  const BG = { lots: ['var(--lots)', 0.8], row: ['var(--row)', 1], curb: ['var(--curb)', 0.8], other: ['var(--plat)', 0.8] };
   const ST = { mh: ['ss', 'circle'], st: ['sd', 'diamond'], fh: ['wl', 'square'], vv: ['wl', 'small'] };
 
   function el(tag, attrs, parent) {
@@ -39,13 +39,13 @@
       if (parts.length) el('path', { ...ns, d: parts.map(d).join(' '), stroke: color, 'stroke-width': w }, bg);
     }
     if (data.labels && data.labels.length) {
-      const lg = el('g', { fill: '#8a909c', 'font-family': 'Arial, sans-serif', 'text-anchor': 'middle', 'dominant-baseline': 'central' }, svg);
+      const lg = el('g', { fill: 'var(--label)', 'font-family': 'JetBrains Mono, monospace', 'text-anchor': 'middle', 'dominant-baseline': 'central' }, svg);
       for (const t of data.labels) { const x = el('text', { x: t.x, y: -t.y, 'font-size': t.s || 8 }, lg); x.textContent = t.t; }
     }
     const lg = el('g', {}, svg);
     data.lines.forEach((l, i) => {
       const off = l.excluded;
-      const p = el('path', { ...ns, d: d(l.pts), stroke: off ? '#b8bcc6' : COLORS[l.item] || '#444', 'stroke-width': off ? 1.5 : 3,
+      const p = el('path', { ...ns, d: d(l.pts), stroke: off ? 'var(--mute)' : COLORS[l.item] || 'var(--ink)', 'stroke-width': off ? 1.5 : 3,
         'stroke-dasharray': off ? '6 5' : 'none', opacity: off ? 0.8 : 0.9 }, lg);
       if (opts.onLineClick) {
         // wide invisible hit target so lines are easy to click
@@ -63,7 +63,7 @@
       for (const s of data.structures || []) {
         const [item, shape] = ST[s.kind] || ['ss', 'circle'];
         const c = COLORS[item], r = shape === 'small' ? r0 * 0.7 : r0, x = s.x, y = -s.y;
-        const a = { fill: '#fff', stroke: c, 'stroke-width': 1.6, 'vector-effect': 'non-scaling-stroke' };
+        const a = { fill: 'var(--map)', stroke: c, 'stroke-width': 1.6, 'vector-effect': 'non-scaling-stroke' };
         if (shape === 'circle') el('circle', { ...a, cx: x, cy: y, r }, sg);
         else if (shape === 'diamond') el('rect', { ...a, x: x - r, y: y - r, width: 2 * r, height: 2 * r, transform: `rotate(45 ${x} ${y})` }, sg);
         else el('rect', { ...a, x: x - r, y: y - r, width: 2 * r, height: 2 * r }, sg);
@@ -101,7 +101,7 @@
       const items = [...new Set(data.lines.map((l) => l.item))];
       const lgd = document.createElement('div'); lgd.className = 'legend';
       lgd.innerHTML = items.map((k) => `<span><i style="background:${COLORS[k]}"></i>${NAMES[k] || k}</span>`).join('') +
-        (data.lines.some((l) => l.excluded) ? '<span><i style="background:#b8bcc6"></i>Left out</span>' : '');
+        (data.lines.some((l) => l.excluded) ? '<span><i style="background:var(--mute)"></i>Left out</span>' : '');
       container.after(lgd);
       if (container._legend) container._legend.remove();
       container._legend = lgd;

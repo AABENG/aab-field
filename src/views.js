@@ -10,15 +10,20 @@ function layout({ title, user, body, wide = false }) {
       ${['owner', 'admin'].includes(user.role) ? '<a href="/users">Users</a>' : ''}
       <span class="who">${esc(user.name)}</span>
       <form method="post" action="/logout"><button class="link">Sign out</button></form>
-    </nav>` : '';
+    </nav>` : '<nav class="top"></nav>';
   return `<!DOCTYPE html>
-<html lang="en"><head>
+<html lang="en" data-theme="night"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · AAB Field</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('aabfield-theme')||'night'}catch(e){}</script>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Saira+Condensed:wght@300;400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/app.css">
 </head><body>
-<header class="bar"><div class="in ${wide ? 'wide' : ''}"><a class="brand" href="/">AAB Field</a>${nav}</div></header>
+<header class="bar"><div class="in ${wide ? 'wide' : ''}"><a class="brand" href="/"><svg class="logo" viewBox="0 0 64 64" fill="none" aria-hidden="true"><circle cx="32" cy="32" r="29" stroke="var(--line2)" stroke-width="1.5"/><circle cx="32" cy="32" r="22" stroke="var(--line2)" stroke-width="1"/><path d="M32 1v6M32 57v6M1 32h6M57 32h6" stroke="var(--accent2)" stroke-width="1.5"/><path d="M14 40l7-15 7 15M24 40l7-15 7 15M38 25h6a4 4 0 010 7.5 4 4 0 010 7.5h-6zM13 25h20M13 40h31" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round" style="filter:drop-shadow(0 0 4px var(--glow))"/></svg> AAB Field</a>${nav}
+<button class="iconbtn" id="themeBtn" type="button" title="Night / day (sunlight) display"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></button></div></header>
 <main class="${wide ? 'wide' : ''}">${body}</main>
+<script>document.getElementById('themeBtn').onclick=function(){var d=document.documentElement,t=d.dataset.theme==='day'?'night':'day';d.dataset.theme=t;try{localStorage.setItem('aabfield-theme',t)}catch(e){}};</script>
 </body></html>`;
 }
 
