@@ -7,6 +7,7 @@ const { pool, migrate } = require('./db');
 const auth = require('./auth');
 const views = require('./views');
 const projects = require('./projects');
+const logs = require('./logs');
 
 function sameOrigin(req, res, next) {
   // Basic CSRF guard: state-changing requests must come from our own pages.
@@ -37,7 +38,7 @@ function buildApp(store) {
   app.disable('x-powered-by');
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
   const smallJson = express.json({ limit: '2mb' });
-  app.use((req, res, next) => (req.path.endsWith('/design') ? next() : smallJson(req, res, next)));
+  app.use((req, res, next) => (req.path.endsWith('/design') || req.path.endsWith('/photos') ? next() : smallJson(req, res, next)));
   app.use('/static', express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
   app.use(session({
     name: 'aabfield.sid',
@@ -109,6 +110,9 @@ function buildApp(store) {
   });
   app.get('/api/me', auth.requireLogin, (req, res) => res.json(req.session.user));
   app.use(projects);
+  app.use(logs.router);
+  // service worker must be served from the site root to control field pages
+  app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(__dirname, '..', 'public', 'sw.js')); });
 
   // ---- user admin (owner and admin) ----
   const canManage = auth.requireRole('owner', 'admin');

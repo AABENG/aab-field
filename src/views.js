@@ -163,7 +163,8 @@ function projectPage({ user, project: p, totals, mapsKey }) {
   return layout({ title: p.name, user, wide: true, body: `
     <div class="card">
       <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">Project ${esc(p.job_no)} · WO ${esc(p.wo_no || '—')}${p.client ? ' · ' + esc(p.client) : ''}${p.latitude != null ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${Number(p.latitude)},${Number(p.longitude)}" target="_blank" rel="noopener">${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}</a>` : ''}</div></div>
-      ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${totals.lines.length ? `<a class="btn sm" href="/projects/${p.id}/log">Daily log</a>` : ''}
+      ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div></div>
     </div>
     <div class="cols">
       <div class="card"><h2>Design quantities</h2>${totalsTable(totals, !!p.has_curb)}</div>
@@ -212,4 +213,42 @@ function setupDesignPage({ user, project: p, locked, mapsKey }) {
     <script>AABSetup.init(${p.id});</script>` });
 }
 
-module.exports = { esc, layout, loginPage, setupPage, homePage, usersPage, projectFormPage, projectPage, setupDesignPage, ITEM_NAMES, KIND_NAMES, PAVING_ITEMS };
+function fieldPage({ user, project: p, mapsKey }) {
+  return layout({ title: 'Daily log · ' + p.name, user, body: `
+    <div class="fieldhead">
+      <div><h1 style="margin:0">${esc(p.name)}</h1><div class="mute">Project ${esc(p.job_no)} · WO ${esc(p.wo_no || '—')}</div></div>
+      <button class="sync" id="syncBtn" type="button" title="Upload anything waiting"></button>
+    </div>
+    <div class="card"><h2>Report week</h2>
+      <div class="weeknav"><button class="chip" id="prevWk" type="button">‹</button><span id="wkLabel" class="mute"></span><button class="chip" id="nextWk" type="button">›</button></div>
+      <div class="days" id="days"></div></div>
+    <div class="card"><h2>Conditions</h2>
+      <div class="grid2">
+        <label>Check-in time<input type="text" id="check_in" placeholder="8:30 AM"></label>
+        <label>Crew on site<input type="number" id="crew" min="0" inputmode="numeric"></label>
+        <label class="wide">Weather <span class="auto" id="wxsrc"></span><input type="text" id="weather"></label>
+        <label>24-hr rain (in)<input type="text" id="rain_in" inputmode="decimal"></label>
+        <div><span class="lbl">No crew today</span><button class="chip full" id="no_crew" type="button">Mark no crew on site</button></div>
+      </div></div>
+    <div class="card"><h2>Equipment</h2><div class="chips" id="equip"></div></div>
+    <div class="card"><h2>Work performed</h2><div class="chips" id="work"></div>
+      <label style="margin-top:14px">Notes<textarea id="notes" placeholder="What the crew did today, where, any issues…"></textarea></label></div>
+    <div class="card"><h2>Progress today</h2>
+      <div class="chips" id="items"></div>
+      <p class="hint">Drag your finger along the selected line over what went in today; structures and fittings on that stretch are counted. Drag off the line to move the plan. Paving goes in order: subgrade, then curb, then paving.</p>
+      <div class="chips" style="margin-bottom:10px"><button class="chip on" data-mode="paint" type="button">Highlight</button><button class="chip" data-mode="erase" type="button">Erase</button><button class="chip" id="undoBtn" type="button">Undo</button></div>
+      <div id="plan" class="planbox" data-project="${p.id}"></div>
+      <div class="legend"><span><i style="background:var(--prior)"></i>Before today</span><span><i style="background:var(--today)"></i>Today</span><span><i id="remSw"></i>Remaining</span></div>
+      <div class="tot"><div><b id="todayFt">0 LF</b><small id="todayLbl">today</small></div><div><b id="todayEa">—</b><small>Structures today</small></div><div><b id="toDate">0%</b><small>Complete</small></div></div>
+    </div>
+    <div class="card"><h2>Photos</h2>
+      <label class="btn sec" style="display:inline-block;margin:0">Add photos<input type="file" id="photoIn" accept="image/*" multiple class="hide"></label>
+      <div class="photos" id="photos"></div>
+      <div class="note">Photos are shrunk to about 0.5 MB and tagged with the time and the phone’s location.</div></div>
+    <div class="fbar"><div class="in"><span id="saveState" class="mute"></span><button class="btn" id="saveBtn" type="button">Save</button></div></div>
+    <div class="toast" id="toast"></div>
+    ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script><script src="/static/js/field.js"></script>
+    <script>AABField.init(${p.id});</script>` });
+}
+
+module.exports = { fieldPage, esc, layout, loginPage, setupPage, homePage, usersPage, projectFormPage, projectPage, setupDesignPage, ITEM_NAMES, KIND_NAMES, PAVING_ITEMS };

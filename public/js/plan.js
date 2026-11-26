@@ -42,8 +42,9 @@
     const lg = el('g', onSat ? { style: 'filter:drop-shadow(0 0 2px rgba(0,0,0,.9))' } : {}, g);
     data.lines.forEach((l, i) => {
       const off = l.excluded;
-      const p = el('path', { ...ns, d: d(l.pts), stroke: off ? 'var(--mute)' : COLORS[l.item] || 'var(--ink)', 'stroke-width': off ? 1.5 : 3,
-        'stroke-dasharray': off ? '6 5' : 'none', opacity: off ? 0.8 : 0.95 }, lg);
+      const st = opts.lineStyle ? opts.lineStyle(l) : null;
+      const p = el('path', { ...ns, d: d(l.pts), stroke: off ? 'var(--mute)' : COLORS[l.item] || 'var(--ink)', 'stroke-width': st ? st.width : off ? 1.5 : 3,
+        'stroke-dasharray': off ? '6 5' : 'none', opacity: st ? st.opacity : off ? 0.8 : 0.95 }, lg);
       if (opts.onLineClick && !onSat) {
         const hit = el('path', { ...ns, d: d(l.pts), stroke: 'transparent', 'stroke-width': 14, style: 'cursor:pointer;pointer-events:stroke' }, lg);
         hit.addEventListener('click', (e) => { if (!opts._moved()) opts.onLineClick(i, e); });
@@ -51,16 +52,20 @@
         hit.addEventListener('mouseleave', () => p.setAttribute('stroke-width', off ? 1.5 : 3));
       }
     });
+    const xg = el('g', {}, g); // extra layers (progress highlights)
     const sg = el('g', {}, g);
     const gps = el('g', {}, g);
     return {
+      extra(ftPerPx) { if (opts.layers) { xg.innerHTML = ''; opts.layers(xg, ftPerPx); } },
       // r0 = symbol radius in drawing feet for the current zoom
       structures(r0) {
         sg.innerHTML = '';
         for (const s of data.structures || []) {
           const [item, shape] = ST[s.kind] || ['ss', 'circle'];
           const c = COLORS[item], r = shape === 'small' ? r0 * 0.7 : r0, x = s.x, y = -s.y;
-          const a = { fill: onSat ? '#0b1424' : 'var(--map)', stroke: c, 'stroke-width': 1.6, 'vector-effect': 'non-scaling-stroke' };
+          const state = opts.structureState ? opts.structureState(s) : null;
+          const a = state ? { fill: state === 'today' ? 'var(--today)' : 'var(--prior)', stroke: onSat ? '#0b1424' : 'var(--map)', 'stroke-width': 1.6, 'vector-effect': 'non-scaling-stroke' }
+            : { fill: onSat ? '#0b1424' : 'var(--map)', stroke: c, 'stroke-width': 1.6, 'vector-effect': 'non-scaling-stroke' };
           if (shape === 'circle') el('circle', { ...a, cx: x, cy: y, r }, sg);
           else if (shape === 'diamond') el('rect', { ...a, x: x - r, y: y - r, width: 2 * r, height: 2 * r, transform: `rotate(45 ${x} ${y})` }, sg);
           else el('rect', { ...a, x: x - r, y: y - r, width: 2 * r, height: 2 * r }, sg);
@@ -95,7 +100,7 @@
     const plain = drawDesign(el('g', {}, svg), data, opts, false);
     const scale = () => vb[2] / (svg.clientWidth || 800); // feet per pixel
     let gpsPt = null;
-    const redrawPlain = () => { plain.structures(4.5 * scale()); plain.gps(gpsPt, 4.5 * scale()); };
+    const redrawPlain = () => { plain.extra(scale()); plain.structures(4.5 * scale()); plain.gps(gpsPt, 4.5 * scale()); };
     redrawPlain();
 
     const zoomBy = (f, cx, cy) => {
@@ -108,23 +113,29 @@
       const q = pt.matrixTransform(svg.getScreenCTM().inverse());
       zoomBy(e.deltaY < 0 ? 0.85 : 1 / 0.85, q.x, q.y);
     }, { passive: false });
-    let drag = null;
-    svg.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY }; moved = false; });
+    let drag = null, custom = false;
+    const dpt = (e) => { const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const q = pt.matrixTransform(svg.getScreenCTM().inverse()); return { x: q.x, y: -q.y }; };
+    svg.addEventListener('pointerdown', (e) => {
+      moved = false;
+      if (opts.pointer && opts.pointer.down(dpt(e), scale())) { custom = true; e.preventDefault(); svg.setPointerCapture(e.pointerId); return; }
+      drag = { x: e.clientX, y: e.clientY };
+    });
     svg.addEventListener('pointermove', (e) => {
+      if (custom) { opts.pointer.move(dpt(e), scale()); return; }
       if (!drag) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       if (!moved) return;
       const f = scale(); vb[0] -= dx * f; vb[1] -= dy * f; drag = { x: e.clientX, y: e.clientY }; setVB();
     });
-    const up = () => { drag = null; setTimeout(() => { moved = false; }, 0); };
+    const up = () => { if (custom) { custom = false; opts.pointer.up(); } drag = null; setTimeout(() => { moved = false; }, 0); };
     window.addEventListener('pointerup', up);
 
     // ---- satellite view ----
     const mapDiv = document.createElement('div');
     mapDiv.className = 'satmap hide';
     container.appendChild(mapDiv);
-    let gmap = null, gpsMarker = null, gpsCircle = null;
+    let gmap = null, gpsMarker = null, gpsCircle = null, overlayRef = null;
     const G = root.AABGeo;
 
     function siteBounds(g) {
@@ -156,11 +167,12 @@
           const P2 = pr.fromLatLngToDivPixel(ll(b[0], b[3]));
           const m = affine(b, P0, P1, P2);
           this.g.setAttribute('transform', `matrix(${m.join(' ')})`);
+          this.view.extra(1 / Math.hypot(m[0], m[1]));
           this.view.structures(4.5 / Math.hypot(m[0], m[1]));
         }
         onRemove() { this.svg.remove(); }
       }
-      new DesignOverlay().setMap(gmap);
+      overlayRef = new DesignOverlay(); overlayRef.setMap(gmap);
       if (lastFix) placeGpsOnMap();
     }
     function showPlain() { mapDiv.classList.add('hide'); svg.classList.remove('hide'); redrawPlain(); }
@@ -226,7 +238,7 @@
       if (container._legend) container._legend.remove();
       container.after(lgd); container._legend = lgd;
     }
-    return { zoomBy };
+    return { zoomBy, refresh() { redrawPlain(); if (overlayRef && overlayRef.getProjection && overlayRef.getProjection()) overlayRef.draw(); }, isSatellite: () => sat };
   }
 
   // Affine matrix [a b c d e f] taking drawing group coords (x, -y) to pixels,

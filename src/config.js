@@ -20,4 +20,6 @@ module.exports = {
   // Google Maps JavaScript API key (restricted to cm.aabeng.com). Optional:
   // without it the map picker and satellite layer are hidden.
   mapsKey: env.GOOGLE_MAPS_KEY || '',
+  // Photos live outside the code folder so a Git update never touches them.
+  uploadDir: env.UPLOAD_DIR || require('path').resolve(__dirname, '..', '..', 'aab-field-uploads'),
 };

@@ -24,6 +24,15 @@ Runs at **https://cm.aabeng.com** on the GoDaddy cPanel account, as a cPanel Nod
   - The DXF is the 100% quantity. Structures are tied to the nearest line of their utility (within 10 ft) with a station, so they count as done when that stretch is highlighted
 - **Project page**: design quantities and the plan
 
+## Release 1, step 3 (daily log on the phone)
+
+- **Daily log** button on each project opens the field page: pick a day in the week (Mon–Sat), fill conditions, equipment, work, notes.
+- Weather and 24-hour rain fill in from the National Weather Service for the site location and check-in time; the CO can overwrite them and the log shows that it was edited.
+- Progress: pick an item and drag a finger along the line. Structures and fittings on that stretch are counted automatically. Undo and erase are there for mistakes.
+- Paving is three items on the street centerline — subgrade, curb (if the project has curb), paving — and each has to sit on the one before it. The phone clips a highlight to what's allowed and the server refuses anything out of order.
+- Photos are shrunk on the phone to about 1600 px and tagged with the time and location. Uploaded photos are stored outside the web folder (`UPLOAD_DIR`, default `../aab-field-uploads`).
+- With no signal, the page still opens (once it has been opened on that phone) and saves go into a waiting list on the phone that uploads when signal returns.
+
 ## Maps
 
 - Drawings are assumed to be Oklahoma state plane, NAD83, US survey feet (North zone by default, South selectable in design setup). Converted with proj4.
