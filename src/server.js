@@ -38,7 +38,7 @@ function buildApp(store) {
   app.disable('x-powered-by');
   app.use(express.urlencoded({ extended: false, limit: '100kb' }));
   const smallJson = express.json({ limit: '2mb' });
-  app.use((req, res, next) => (req.path.endsWith('/design') || req.path.endsWith('/photos') ? next() : smallJson(req, res, next)));
+  app.use((req, res, next) => (req.path.endsWith('/design') || req.path.endsWith('/photos') || req.path.endsWith('/clearing-limits') ? next() : smallJson(req, res, next)));
   app.use('/static', express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
   app.use(session({
     name: 'aabfield.sid',

@@ -20,3 +20,17 @@ test('point inside', () => {
   assert.ok(A.inside(sq(0, 0, 10), 5, 5));
   assert.ok(!A.inside(sq(0, 0, 10), 15, 5));
 });
+
+test('clearing is cut to the limits of clearing', () => {
+  const limits = [sq(0, 0, 100)];
+  assert.ok(Math.abs(A.unionSqft([sq(50, 50, 100)], null, limits) - 2500) < 30);   // only the overlap counts
+  assert.ok(Math.abs(A.unionSqft([sq(-50, -50, 300)], null, limits) - 10000) < 50); // can't exceed the limits
+  assert.ok(Math.abs(A.unionSqft([sq(10, 10, 20)], null, [sq(0, 0, 100), sq(500, 0, 50)]) - 400) < 10);
+});
+
+test('limits drawn in pieces are joined into a closed area', () => {
+  const pieces = [[[0, 0], [100, 0]], [[100, 100], [100, 0]], [[100, 100], [0, 100], [0, 0.4]], [[500, 500], [600, 500]]];
+  const rings = A.stitchRings(pieces);
+  assert.equal(rings.length, 1);
+  assert.ok(Math.abs(A.sqft(rings[0]) - 10000) < 50);
+});

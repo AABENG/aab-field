@@ -31,9 +31,12 @@ Runs at **https://cm.aabeng.com** on the GoDaddy cPanel account, as a cPanel Nod
 - Progress: pick an item and drag a finger along the line. Structures and fittings on that stretch are counted automatically. Undo and erase are there for mistakes.
 - Paving is three items on the street centerline — subgrade, curb (if the project has curb), paving — and each has to sit on the one before it. The phone clips a highlight to what's allowed and the server refuses anything out of order.
 - Photos are shrunk on the phone to about 1600 px and tagged with the time and location. Uploaded photos are stored outside the web folder (`UPLOAD_DIR`, default `../aab-field-uploads`).
-- **Clearing** and **Earthwork** areas: tap the corners of the ground cleared, or where dirt work went on, that day; tap the first corner (or Finish) to close it. Clearing adds up to a running total of cleared acres (overlaps counted once); earthwork shows only where dirt work is going on that day (no running total).
+- **Clearing** and **Earthwork** areas: tap the corners of the ground cleared, or where dirt work went on, that day; tap the first corner (or Finish) to close it. Clearing adds up to a running total of cleared acres (overlaps counted once) and only counts inside the project's limits of clearing, if one is set; earthwork shows only where dirt work is going on that day (no running total).
 - CO logins only reach this page: they land on a list of active jobs that opens straight into each daily log.
 - With no signal, the page still opens (once it has been opened on that phone) and saves go into a waiting list on the phone that uploads when signal returns.
+
+### Limits of clearing
+On the design setup page (step 3), pick the DXF layer with the limits of clearing. Closed polylines are used; pieces drawn end to end are joined. Save it with the design, or with **Save clearing limits only**, which also works after field logging has started (the setup page still loads the DXF for this). The phone shows the limits dashed, cuts clearing to them, and shows the percent of the limits cleared.
 
 ## Maps
 

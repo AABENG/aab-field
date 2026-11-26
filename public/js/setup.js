@@ -224,6 +224,42 @@
       : '<span style="color:var(--err)">With this coordinate system the drawing lands outside Oklahoma. Check the coordinate system, or the drawing may not be in state plane; the satellite map and auto location won’t work.</span>';
   }
 
+  // ---------- limits of clearing ----------
+  function guessClearing(names) {
+    const order = [/LIMITS?.?OF.?CLEAR|CLEAR.*LIM|LOC\b|^LOC/i, /CLEAR/i, /DISTURB/i];
+    for (const re of order) { const f = names.find((n) => re.test(n)); if (f) return f; }
+    return '';
+  }
+  let clearRings = [];
+  function buildClearing() {
+    const name = $('clearLayer').value;
+    clearRings = name ? root.AABAreas.stitchRings(all.entities.filter((e) => e.layer === name && e.type === 'line').map((e) => e.pts), 2)
+      .map((r) => thin(r)) : [];
+    const ac = clearRings.length ? root.AABAreas.unionSqft(clearRings) / root.AABAreas.SQFT_PER_ACRE : 0;
+    $('clearInfo').innerHTML = !name ? 'No limits of clearing: clearing acres will be counted as drawn.'
+      : clearRings.length ? `${clearRings.length} closed area${clearRings.length > 1 ? 's' : ''}, ${ac.toFixed(2)} acres inside the limits (dashed yellow on the preview).`
+      : '<span style="color:var(--err)">That layer has no closed areas. The limits need to close (pieces drawn end to end are joined).</span>';
+  }
+  function drawClearing(g) {
+    const NS = 'http://www.w3.org/2000/svg';
+    for (const r of clearRings) {
+      const p = document.createElementNS(NS, 'path');
+      p.setAttribute('d', 'M' + r.map((q) => q[0] + ' ' + (-q[1])).join(' L') + ' Z');
+      p.setAttribute('fill', 'var(--clear)'); p.setAttribute('fill-opacity', '0.08'); p.setAttribute('stroke', 'var(--clear)');
+      p.setAttribute('stroke-width', '2'); p.setAttribute('stroke-dasharray', '8 5'); p.setAttribute('vector-effect', 'non-scaling-stroke');
+      g.appendChild(p);
+    }
+  }
+  async function saveLimits() {
+    const st = $('saveStatus');
+    if (!$('clearLayer').value) { st.textContent = 'Pick a limits of clearing layer first.'; return; }
+    if (!clearRings.length) { st.textContent = 'That layer has no closed areas to save.'; return; }
+    st.textContent = 'Saving limits of clearing…';
+    const r = await fetch(`/api/projects/${projectId}/clearing-limits`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rings: clearRings }) });
+    const j = await r.json().catch(() => ({}));
+    st.textContent = r.ok ? `Saved limits of clearing: ${j.areas} area${j.areas > 1 ? 's' : ''}, ${j.acres} acres.` : (j.error || 'Save failed');
+  }
+
   function preview() {
     design = build();
     showLocation();
@@ -236,6 +272,7 @@
         l.excluded = !l.excluded;
         rerenderPreviewOnly();
       },
+      layers: drawClearing,
     });
     totals();
   }
@@ -243,6 +280,7 @@
     // keep current zoom by re-rendering with same data
     root.AABPlan.render($('preview'), { viewBox: box, background: design.background, labels: design.background.labels, lines: design.lines, structures: design.structures, crs: $('crs').value }, {
       onLineClick: (i) => { const l = design.lines[i]; if (excluded.has(l.key)) excluded.delete(l.key); else excluded.add(l.key); l.excluded = !l.excluded; rerenderPreviewOnly(); },
+      layers: drawClearing,
     });
     totals();
   }
@@ -270,7 +308,8 @@
       const r = await fetch(`/api/projects/${projectId}/design`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ viewBox: box, background: bg, lines, structures: design.structures, hasCurb: $('hasCurb').checked,
-          crs: $('crs').value, useDrawingLocation: !!($('useDrawingLocation') && $('useDrawingLocation').checked) }),
+          crs: $('crs').value, useDrawingLocation: !!($('useDrawingLocation') && $('useDrawingLocation').checked),
+          ...($('clearLayer').value ? { clearingLimits: clearRings } : {}) }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Save failed');
@@ -291,6 +330,9 @@
       const closedLayers = [...new Set(all.entities.filter((e) => e.type === 'line').map((e) => e.layer))].sort();
       const g = guessBoundary(closedLayers);
       $('boundary').innerHTML = `<option value="">(whole drawing)</option>` + closedLayers.map((n) => `<option ${n === g ? 'selected' : ''}>${esc(n)}</option>`).join('');
+      const gc = guessClearing(closedLayers);
+      $('clearLayer').innerHTML = `<option value="">(none)</option>` + closedLayers.map((n) => `<option ${n === gc ? 'selected' : ''}>${esc(n)}</option>`).join('');
+      buildClearing();
       tags.clear(); symTags.clear(); excluded.clear();
       collect(); renderTable();
       // default the curb box from whether any curb layer exists in the drawing
@@ -312,6 +354,8 @@
       later(preview);
     });
     $('saveDesign').addEventListener('click', save);
+    $('saveLimits').addEventListener('click', saveLimits);
+    $('clearLayer').addEventListener('change', () => { buildClearing(); rerenderPreviewOnly(); });
     $('hasCurb').addEventListener('change', totals);
     $('crs').addEventListener('change', preview);
   }

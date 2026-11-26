@@ -195,12 +195,12 @@ function setupDesignPage({ user, project: p, locked, mapsKey }) {
   return layout({ title: 'Design setup · ' + p.name, user, wide: true, body: `
     <div class="card">
       <h1>Design setup: ${esc(p.name)}</h1>
-      ${locked ? '<p class="err">Field progress has been logged on this design, so it can’t be replaced.</p>' : `
+      ${locked ? '<p class="err">Field progress has been logged on this design, so it can’t be replaced.</p><p class="mute">You can still add or update the limits of clearing: pick the plan DXF, choose the layer in step 3, and save the limits.</p>' : ''}
       <p class="mute">Pick the project's plan DXF. It's read here in your browser; only the linework you tag is sent to the server. Profiles, contours, grids and drainage-area layers are skipped automatically.</p>
       <input type="file" id="dxfFile" accept=".dxf">
-      <div id="readStatus" class="mute" style="margin-top:8px"></div>`}
+      <div id="readStatus" class="mute" style="margin-top:8px"></div>
     </div>
-    <div id="setupUI" class="hide">
+    <div id="setupUI" class="hide${locked ? ' locked' : ''}">
       <div class="card">
         <h2>1. Limit to the project area</h2>
         <label>Boundary layer <span class="mute">(lines outside it, plus a margin, are ignored; keeps profile views out)</span>
@@ -210,7 +210,7 @@ function setupDesignPage({ user, project: p, locked, mapsKey }) {
         <p class="mute" id="siteLoc"></p>
         ${p.latitude != null ? '<label class="chk"><input type="checkbox" id="useDrawingLocation"> Replace the picked site location with the drawing’s center</label>' : ''}
       </div>
-      <div class="card">
+      <div class="card designonly">
         <h2>2. Tag the layers</h2>
         <p class="mute">Guesses are filled in from layer names; check them. Lengths are inside the project area.</p>
         <div class="tablewrap"><table id="layerTable"><thead><tr><th>Layer</th><th class="n">Lines</th><th class="n">Length (ft)</th><th class="n">Symbols</th><th>Use lines as</th><th>Options</th><th>Symbols as</th></tr></thead><tbody></tbody></table></div>
@@ -219,13 +219,16 @@ function setupDesignPage({ user, project: p, locked, mapsKey }) {
         <h2>3. Check the plan</h2>
         <p class="mute">Click a colored line to leave it out (it turns gray and dashed); click again to bring it back.</p>
         <div id="preview" class="planbox tall"></div>
-        <label class="chk" style="margin-top:10px"><input type="checkbox" id="hasCurb" checked> This project has curb and gutter <span class="mute">(paving is tracked as subgrade, curb and gutter, and paving along the street centerline; uncheck for streets without curb)</span></label>
-        <div id="previewTotals" style="margin-top:10px"></div>
-        <div style="margin-top:12px"><button class="btn" id="saveDesign">Save design</button> <span id="saveStatus" class="mute"></span></div>
+        <label style="margin-top:10px">Limits of clearing layer <span class="mute">(optional; clearing drawn in the field only counts inside it)</span>
+          <select id="clearLayer"></select></label>
+        <div id="clearInfo" class="mute" style="margin:4px 0 6px"></div>
+        <label class="chk designonly" style="margin-top:10px"><input type="checkbox" id="hasCurb" checked> This project has curb and gutter <span class="mute">(paving is tracked as subgrade, curb and gutter, and paving along the street centerline; uncheck for streets without curb)</span></label>
+        <div id="previewTotals" class="designonly" style="margin-top:10px"></div>
+        <div style="margin-top:12px"><button class="btn designonly" id="saveDesign">Save design</button> <button class="btn sm ghost" id="saveLimits" type="button">Save clearing limits only</button> <span id="saveStatus" class="mute"></span></div>
       </div>
     </div>
     <script src="/static/js/dxf.js"></script>
-    ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script>
+    ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script><script src="/static/js/areas.js"></script>
     <script src="/static/js/setup.js"></script>
     <script>AABSetup.init(${p.id});</script>` });
 }

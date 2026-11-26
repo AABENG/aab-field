@@ -5,6 +5,7 @@ const views = require('./views');
 const geo = require('../public/js/dxf.js');
 const ll = require('../public/js/geo.js');
 const config = require('./config');
+const A = require('../public/js/areas');
 
 const ITEMS = ['wl', 'ss', 'sd', 'cl'];
 const KINDS = { mh: 'ss', st: 'sd', fh: 'wl', vv: 'wl' };
@@ -78,10 +79,32 @@ router.get('/api/projects/:id/design', auth.requireLogin, async (req, res) => {
     background: p.background_json ? JSON.parse(p.background_json) : null,
     lines: lines.map((l) => ({ id: l.id, item: l.item, layer: l.source_layer, ft: Number(l.length_ft), pts: JSON.parse(l.points_json) })),
     structures: sts.map((s) => ({ id: s.id, kind: s.kind, line: s.line_id, station: Number(s.station_ft), x: Number(s.x), y: Number(s.y) })),
+    clearing: p.clearing_json ? JSON.parse(p.clearing_json) : [],
   });
 });
 
 const roundPts = (pts) => pts.map(([x, y]) => [r2(x), r2(y)]);
+// Limits of clearing: up to 200 closed areas. Returns rounded rings, or null if invalid.
+function cleanRings(rings) {
+  if (!Array.isArray(rings) || rings.length > 200) return null;
+  const out = [];
+  for (const r of rings) {
+    if (!Array.isArray(r) || r.length < 3 || r.length > 20000) return null;
+    if (!r.every((q) => Array.isArray(q) && Number.isFinite(q[0]) && Number.isFinite(q[1]))) return null;
+    out.push(roundPts(r));
+  }
+  return out;
+}
+
+// Saved on its own so it can be added or fixed after field logging has started.
+router.post('/api/projects/:id/clearing-limits', auth.requireLogin, canSetup, express.json({ limit: '10mb' }), async (req, res) => {
+  const p = await getProject(req.params.id);
+  if (!p) return res.status(404).json({ error: 'No such project' });
+  const rings = cleanRings((req.body || {}).rings);
+  if (!rings) return res.status(400).json({ error: 'Those limits of clearing could not be read' });
+  await pool.query('UPDATE projects SET clearing_json = ? WHERE id = ?', [rings.length ? JSON.stringify(rings) : null, p.id]);
+  res.json({ ok: true, areas: rings.length, acres: Math.round(A.unionSqft(rings) / A.SQFT_PER_ACRE * 100) / 100 });
+});
 const validPts = (pts) => Array.isArray(pts) && pts.length >= 2 && pts.length < 50000 &&
   pts.every((q) => Array.isArray(q) && q.length >= 2 && Number.isFinite(q[0]) && Number.isFinite(q[1]));
 
@@ -137,6 +160,8 @@ router.post('/api/projects/:id/design', auth.requireLogin, canSetup, express.jso
     }
     await conn.query('UPDATE projects SET view_box = ?, background_json = ?, has_curb = ?, crs = ?, latitude = ?, longitude = ?, status = IF(status = "setup", "active", status) WHERE id = ?',
       [vb ? JSON.stringify(vb) : null, JSON.stringify(bg), hasCurb, crs, lat, lng, p.id]);
+    const limits = b.clearingLimits === undefined ? undefined : cleanRings(b.clearingLimits);
+    if (limits) await conn.query('UPDATE projects SET clearing_json = ? WHERE id = ?', [limits.length ? JSON.stringify(limits) : null, p.id]);
     await conn.commit();
     res.json({ ok: true, lines: lines.length, structures: kept, structuresDropped: dropped, totals: await designTotals(p.id) });
   } catch (e) {

@@ -45,7 +45,7 @@
   const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
 
   // ---------- state ----------
-  let P, D, lines, lineById, items, plan;
+  let P, D, lines, lineById, items, plan, limits = [];
   const S = { date: todayStr(), week: null, item: 'ss', erase: false, online: navigator.onLine, outbox: [], drag: null, preview: null, draft: null };
   const logs = new Map();   // date -> log object
   const prog = new Map();   // date -> Map("line|track" -> intervals)
@@ -97,8 +97,15 @@
   function drawAreas(g, ftPerPx, it) {
     const ink = { 'vector-effect': 'non-scaling-stroke', 'stroke-linejoin': 'round' };
     const before = areasWhere(it.area, (d) => d < S.date);
-    if (it.area === 'clear') before.forEach((pts) => el('path', { ...ink, d: polyD(pts), fill: 'var(--prior)', 'fill-opacity': 0.16, stroke: 'var(--prior)', 'stroke-opacity': 0.5, 'stroke-width': 1 }, g));
-    dayAreas(S.date).filter((a) => a.kind === it.area).forEach((a) => el('path', { ...ink, d: polyD(a.pts), fill: it.color, 'fill-opacity': 0.35, stroke: it.color, 'stroke-width': 2.5 }, g));
+    // Clearing only counts inside the limits of clearing, so it's drawn cut to them.
+    const clip = it.area === 'clear' && limits.length ? { 'clip-path': 'url(#loc-clip)' } : {};
+    if (clip['clip-path']) {
+      const cp = el('clipPath', { id: 'loc-clip' }, el('defs', {}, g));
+      limits.forEach((r) => el('path', { d: polyD(r) }, cp));
+      limits.forEach((r) => el('path', { ...ink, d: polyD(r), fill: 'none', stroke: 'var(--clear)', 'stroke-width': 2, 'stroke-dasharray': '9 6', opacity: 0.9 }, g));
+    }
+    if (it.area === 'clear') before.forEach((pts) => el('path', { ...ink, ...clip, d: polyD(pts), fill: 'var(--prior)', 'fill-opacity': 0.16, stroke: 'var(--prior)', 'stroke-opacity': 0.5, 'stroke-width': 1 }, g));
+    dayAreas(S.date).filter((a) => a.kind === it.area).forEach((a) => el('path', { ...ink, ...clip, d: polyD(a.pts), fill: it.color, 'fill-opacity': 0.35, stroke: it.color, 'stroke-width': 2.5 }, g));
     const dr = S.draft;
     if (dr && dr.pts.length) {
       el('path', { ...ink, d: pathD(dr.pts), fill: dr.pts.length > 2 ? it.color : 'none', 'fill-opacity': 0.15, stroke: 'var(--today)', 'stroke-width': 2.5, 'stroke-dasharray': '6 4' }, g);
@@ -192,7 +199,7 @@
     dayAreas(S.date).push({ kind: d.kind, pts: d.pts.map((q) => [+q[0].toFixed(2), +q[1].toFixed(2)]) });
     S.draft = null;
     if (!L.work.includes(it.work)) L.work.push(it.work);
-    toast(`${it.name} area added · ${ac(AreaJS.sqft(d.pts))}`);
+    toast(`${it.name} area added · ${ac(d.kind === 'clear' && limits.length ? AreaJS.unionSqft([d.pts], null, limits) : AreaJS.sqft(d.pts))}${d.kind === 'clear' && limits.length ? ' inside the limits' : ''}`);
     changed();
   }
   function dropDraft() { if (S.draft && S.draft.pts.length) toast('Unfinished area dropped'); S.draft = null; }
@@ -251,14 +258,19 @@
     if (it.area) {
       const today = dayAreas(S.date).filter((a) => a.kind === it.area).map((a) => a.pts);
       if (it.area === 'clear') {
-        const prior = AreaJS.unionSqft(areasWhere('clear', (d) => d < S.date)), thru = AreaJS.unionSqft(areasWhere('clear', (d) => d <= S.date));
+        const lim = limits.length ? limits : null;
+        const prior = AreaJS.unionSqft(areasWhere('clear', (d) => d < S.date), null, lim), thru = AreaJS.unionSqft(areasWhere('clear', (d) => d <= S.date), null, lim);
         $('todayFt').textContent = acN(Math.max(0, thru - prior)); $('todayLbl').textContent = 'Acres cleared today';
-        $('toDate').textContent = acN(thru); $('toDateLbl').textContent = 'Acres to date';
+        if (lim) {
+          const total = AreaJS.unionSqft(lim);
+          $('todayEa').textContent = acN(thru); $('todayEaLbl').textContent = 'Acres to date';
+          $('toDate').textContent = Math.min(100, Math.round(100 * thru / total)) + '%'; $('toDateLbl').textContent = `of ${acN(total)} ac limits`;
+        } else { $('toDate').textContent = acN(thru); $('toDateLbl').textContent = 'Acres to date'; }
       } else {
         $('todayFt').textContent = acN(AreaJS.unionSqft(today)); $('todayLbl').textContent = 'Acres worked today';
 
       }
-      $('todayEa').textContent = String(today.length); $('todayEaLbl').textContent = 'Areas today';
+      if (!(it.area === 'clear' && limits.length)) { $('todayEa').textContent = String(today.length); $('todayEaLbl').textContent = 'Areas today'; }
       $('toDate').parentElement.hidden = it.area === 'earth'; // earthwork is day by day, no running total
       $('photos').innerHTML = L.photos.map((ph, i) => `<div class="ph"><img src="${ph.id ? '/photos/' + ph.id : ph.data}" alt="">${ph.id ? '' : '<em>waiting</em>'}<button type="button" data-ph="${i}" title="Remove">×</button></div>`).join('');
       renderBar(); if (plan) plan.refresh();
@@ -439,7 +451,7 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
       // keep a copy of this page and its data so it opens with no signal next time
-      navigator.serviceWorker.ready.then(() => caches.open('aabfield-v2')).then((c) =>
+      navigator.serviceWorker.ready.then(() => caches.open('aabfield-v3')).then((c) =>
         c.addAll([location.pathname, `/api/projects/${projectId}/design`, `/api/projects/${projectId}/field`])).catch(() => {});
     }
     S.week = monday(S.date);
@@ -448,7 +460,7 @@
       [D, field] = await Promise.all([fetch(`/api/projects/${projectId}/design`).then((r) => r.json()), fetch(`/api/projects/${projectId}/field`).then((r) => r.json())]);
     } catch (e) { toast('Couldn’t load the project — check signal and reload'); return; }
     P = { id: projectId, ...D.project };
-    lines = D.lines; lines.forEach(prep); lineById = new Map(lines.map((l) => [l.id, l]));
+    lines = D.lines; lines.forEach(prep); limits = D.clearing || []; lineById = new Map(lines.map((l) => [l.id, l]));
     items = {
       clear: { name: 'Clearing', area: 'clear', color: 'var(--clear)', work: 'Tree clearing' },
       earth: { name: 'Earthwork', area: 'earth', color: 'var(--earth)', work: 'Earthwork' },
