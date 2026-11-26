@@ -174,9 +174,11 @@ function exhibit(pdf, data, c, weekStart, weekEnd, header) {
   const { week, toDate } = Q.summarize(c, weekStart, weekEnd);
   const has = (item) => data.lines.some((l) => l.item === item);
   const pages = [];
-  for (const [k, name, kinds] of UTIL) if (has(k) && (toDate[k] || kinds.some((x) => toDate[x]))) pages.push({ kind: 'util', item: k, name, kinds });
-  if (has('cl') && ['sg', 'cb', 'pv'].some((t) => toDate[t])) pages.push({ kind: 'streets', name: 'Streets (subgrade, curb, paving)' });
-  if (data.areas.some((a) => a.date <= weekEnd) || (data.limits || []).length && toDate.clear) pages.push({ kind: 'site', name: 'Clearing and earthwork' });
+  // Every item in the design gets its page, even before any of it is installed,
+  // so the report always shows everything still to be built.
+  for (const [k, name, kinds] of UTIL) if (has(k)) pages.push({ kind: 'util', item: k, name, kinds });
+  if (has('cl')) pages.push({ kind: 'streets', name: 'Streets (subgrade, curb, paving)' });
+  if (data.areas.some((a) => a.date <= weekEnd) || (data.limits || []).length) pages.push({ kind: 'site', name: 'Clearing and earthwork' });
   if (!pages.length) pages.push({ kind: 'overview', name: 'Site plan (no work recorded yet)' });
   for (const pg of pages) exhibitPage(pdf, data, c, weekStart, weekEnd, header, pg, { week, toDate, hasCurb });
 }
