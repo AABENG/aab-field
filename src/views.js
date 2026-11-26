@@ -27,6 +27,11 @@ function layout({ title, user, body, wide = false }) {
 </body></html>`;
 }
 
+// Scripts for map pages. The Google key is restricted to cm.aabeng.com in
+// Google Cloud, so it is safe in the page (that is how Maps keys work).
+const mapScripts = (mapsKey) => `<script>window.AAB_MAPS_KEY=${JSON.stringify(mapsKey || '')};</script>
+<script src="/static/js/proj4.js"></script><script src="/static/js/geo.js"></script><script src="/static/js/maps.js"></script>`;
+
 const errBox = (msg) => (msg ? `<p class="err">${esc(msg)}</p>` : '');
 
 function loginPage({ error, email }) {
@@ -108,7 +113,7 @@ const ITEM_NAMES = { wl: 'Waterline', ss: 'Sanitary sewer', sd: 'Storm sewer', c
 const PAVING_ITEMS = [['sg', 'Subgrade'], ['cb', 'Curb and gutter'], ['pv', 'Paving']];
 const KIND_NAMES = { mh: 'Sanitary manholes', st: 'Storm structures', fh: 'Fire hydrants', vv: 'Water valves' };
 
-function projectFormPage({ user, error, form = {} }) {
+function projectFormPage({ user, error, form = {}, mapsKey }) {
   return layout({ title: 'New project', user, body: `
     <div class="card">
       <h1>New project</h1>
@@ -119,11 +124,18 @@ function projectFormPage({ user, error, form = {} }) {
         <label>Project name<input name="name" placeholder="The Grove Phase 1" value="${esc(form.name)}" required></label>
         <label>Client<input name="client" placeholder="Executive Homes" value="${esc(form.client)}"></label>
         <label>Client report emails <span class="mute">(comma separated)</span><input name="client_emails" value="${esc(form.client_emails)}"></label>
-        <label>Site latitude <span class="mute">(for weather)</span><input name="latitude" inputmode="decimal" placeholder="36.06" value="${esc(form.latitude)}"></label>
-        <label>Site longitude<input name="longitude" inputmode="decimal" placeholder="-95.79" value="${esc(form.longitude)}"></label>
+        <div style="grid-column:1/-1">
+          <label style="margin-bottom:6px">Site location <span class="mute">(for weather; filled in from the DXF automatically if you skip it)</span></label>
+          ${mapsKey ? '<div id="picker" class="pickmap"></div><p class="mute" style="margin:6px 0 12px">Tap the site on the map to drop a pin; drag the pin to adjust.</p>' : ''}
+          <div class="grid" ${mapsKey ? 'style="display:none"' : ''}>
+            <label>Latitude<input name="latitude" id="lat" inputmode="decimal" placeholder="36.06" value="${esc(form.latitude)}"></label>
+            <label>Longitude<input name="longitude" id="lng" inputmode="decimal" placeholder="-95.79" value="${esc(form.longitude)}"></label>
+          </div>
+        </div>
         <div><button class="btn">Create and set up design</button></div>
       </form>
-    </div>` });
+    </div>
+    ${mapsKey ? mapScripts(mapsKey) + `<script>AABMaps.picker(document.getElementById('picker'), document.getElementById('lat'), document.getElementById('lng')).catch(function(){document.getElementById('picker').outerHTML='<p class="err">The map didn\u2019t load. Enter latitude and longitude instead.</p>';document.querySelector('.grid[style]').style.display='';});</script>` : ''}` });
 }
 
 function totalsTable(totals, hasCurb = true) {
@@ -147,21 +159,21 @@ function totalsTable(totals, hasCurb = true) {
     : '<p class="mute">No design loaded yet.</p>';
 }
 
-function projectPage({ user, project: p, totals }) {
+function projectPage({ user, project: p, totals, mapsKey }) {
   return layout({ title: p.name, user, wide: true, body: `
     <div class="card">
-      <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">Project ${esc(p.job_no)} · WO ${esc(p.wo_no || '—')}${p.client ? ' · ' + esc(p.client) : ''}</div></div>
+      <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">Project ${esc(p.job_no)} · WO ${esc(p.wo_no || '—')}${p.client ? ' · ' + esc(p.client) : ''}${p.latitude != null ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${Number(p.latitude)},${Number(p.longitude)}" target="_blank" rel="noopener">${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}</a>` : ''}</div></div>
       ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div>
     </div>
     <div class="cols">
       <div class="card"><h2>Design quantities</h2>${totalsTable(totals, !!p.has_curb)}</div>
       <div class="card grow"><h2>Plan</h2><div id="plan" class="planbox" data-project="${p.id}"></div></div>
     </div>
-    <script src="/static/js/plan.js"></script>
+    ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script>
     <script>AABPlan.mount(document.getElementById('plan'));</script>` });
 }
 
-function setupDesignPage({ user, project: p, locked }) {
+function setupDesignPage({ user, project: p, locked, mapsKey }) {
   return layout({ title: 'Design setup · ' + p.name, user, wide: true, body: `
     <div class="card">
       <h1>Design setup: ${esc(p.name)}</h1>
@@ -176,6 +188,9 @@ function setupDesignPage({ user, project: p, locked }) {
         <label>Boundary layer <span class="mute">(lines outside it, plus a margin, are ignored; keeps profile views out)</span>
           <select id="boundary"></select></label>
         <label>Margin around boundary (ft)<input id="margin" type="number" value="150" min="0" step="10"></label>
+        <label>Drawing coordinate system<select id="crs"><option value="EPSG:2267" ${p.crs === 'EPSG:2268' ? '' : 'selected'}>Oklahoma North state plane (NAD83, US ft)</option><option value="EPSG:2268" ${p.crs === 'EPSG:2268' ? 'selected' : ''}>Oklahoma South state plane (NAD83, US ft)</option></select></label>
+        <p class="mute" id="siteLoc"></p>
+        ${p.latitude != null ? '<label class="chk"><input type="checkbox" id="useDrawingLocation"> Replace the picked site location with the drawing’s center</label>' : ''}
       </div>
       <div class="card">
         <h2>2. Tag the layers</h2>
@@ -192,7 +207,7 @@ function setupDesignPage({ user, project: p, locked }) {
       </div>
     </div>
     <script src="/static/js/dxf.js"></script>
-    <script src="/static/js/plan.js"></script>
+    ${mapScripts(mapsKey)}<script src="/static/js/plan.js"></script>
     <script src="/static/js/setup.js"></script>
     <script>AABSetup.init(${p.id});</script>` });
 }

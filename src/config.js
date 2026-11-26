@@ -17,4 +17,7 @@ module.exports = {
   // Behind GoDaddy's proxy the app sees http; trust the proxy so secure
   // cookies work once SSL is on.
   trustProxy: env.TRUST_PROXY !== '0',
+  // Google Maps JavaScript API key (restricted to cm.aabeng.com). Optional:
+  // without it the map picker and satellite layer are hidden.
+  mapsKey: env.GOOGLE_MAPS_KEY || '',
 };

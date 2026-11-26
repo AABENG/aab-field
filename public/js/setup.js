@@ -216,10 +216,19 @@
     $('previewTotals').innerHTML = rows.length ? `<table><thead><tr><th>Item</th><th class="n">Design (100%)</th><th></th></tr></thead><tbody>${rows.join('')}</tbody></table>` : '<p class="mute">Tag at least one utility or centerline layer.</p>';
   }
 
+  function showLocation() {
+    const el = $('siteLoc'); if (!el || !box || !root.AABGeo) return;
+    const c = root.AABGeo.toLatLng($('crs').value, (box[0] + box[2]) / 2, (box[1] + box[3]) / 2);
+    el.innerHTML = root.AABGeo.looksOklahoma(c)
+      ? `Drawing center: <a href="https://www.google.com/maps/search/?api=1&query=${c.lat.toFixed(6)},${c.lng.toFixed(6)}" target="_blank" rel="noopener">${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}</a> — open it to check it's the site.`
+      : '<span style="color:var(--err)">With this coordinate system the drawing lands outside Oklahoma. Check the coordinate system, or the drawing may not be in state plane; the satellite map and auto location won’t work.</span>';
+  }
+
   function preview() {
     design = build();
+    showLocation();
     root.AABPlan.render($('preview'), {
-      viewBox: box, background: design.background, labels: design.background.labels, lines: design.lines, structures: design.structures,
+      viewBox: box, background: design.background, labels: design.background.labels, lines: design.lines, structures: design.structures, crs: $('crs').value,
     }, {
       onLineClick: (i) => {
         const l = design.lines[i];
@@ -232,7 +241,7 @@
   }
   function rerenderPreviewOnly() {
     // keep current zoom by re-rendering with same data
-    root.AABPlan.render($('preview'), { viewBox: box, background: design.background, labels: design.background.labels, lines: design.lines, structures: design.structures }, {
+    root.AABPlan.render($('preview'), { viewBox: box, background: design.background, labels: design.background.labels, lines: design.lines, structures: design.structures, crs: $('crs').value }, {
       onLineClick: (i) => { const l = design.lines[i]; if (excluded.has(l.key)) excluded.delete(l.key); else excluded.add(l.key); l.excluded = !l.excluded; rerenderPreviewOnly(); },
     });
     totals();
@@ -260,7 +269,8 @@
     try {
       const r = await fetch(`/api/projects/${projectId}/design`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ viewBox: box, background: bg, lines, structures: design.structures, hasCurb: $('hasCurb').checked }),
+        body: JSON.stringify({ viewBox: box, background: bg, lines, structures: design.structures, hasCurb: $('hasCurb').checked,
+          crs: $('crs').value, useDrawingLocation: !!($('useDrawingLocation') && $('useDrawingLocation').checked) }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || 'Save failed');
@@ -303,6 +313,7 @@
     });
     $('saveDesign').addEventListener('click', save);
     $('hasCurb').addEventListener('change', totals);
+    $('crs').addEventListener('change', preview);
   }
 
   root.AABSetup = { init, _guessLine: guessLine, _guessSym: guessSym };

@@ -3,6 +3,8 @@ const { pool } = require('./db');
 const auth = require('./auth');
 const views = require('./views');
 const geo = require('../public/js/dxf.js');
+const ll = require('../public/js/geo.js');
+const config = require('./config');
 
 const ITEMS = ['wl', 'ss', 'sd', 'cl'];
 const KINDS = { mh: 'ss', st: 'sd', fh: 'wl', vv: 'wl' };
@@ -24,7 +26,7 @@ async function designTotals(projectId) {
 
 // ---- pages ----
 router.get('/projects/new', auth.requireLogin, canSetup, (req, res) => {
-  res.send(views.projectFormPage({ user: req.session.user }));
+  res.send(views.projectFormPage({ user: req.session.user, mapsKey: config.mapsKey }));
 });
 
 router.post('/projects', auth.requireLogin, canSetup, async (req, res) => {
@@ -44,14 +46,14 @@ router.post('/projects', auth.requireLogin, canSetup, async (req, res) => {
     res.redirect(`/projects/${r.insertId}/setup`);
   } catch (e) {
     const msg = e.code === 'ER_DUP_ENTRY' ? 'A project with that job number already exists.' : e.message;
-    res.status(400).send(views.projectFormPage({ user: req.session.user, error: msg, form }));
+    res.status(400).send(views.projectFormPage({ user: req.session.user, error: msg, form, mapsKey: config.mapsKey }));
   }
 });
 
 router.get('/projects/:id', auth.requireLogin, async (req, res, next) => {
   const p = await getProject(req.params.id);
   if (!p) return next();
-  res.send(views.projectPage({ user: req.session.user, project: p, totals: await designTotals(p.id) }));
+  res.send(views.projectPage({ user: req.session.user, project: p, totals: await designTotals(p.id), mapsKey: config.mapsKey }));
 });
 
 router.get('/projects/:id/setup', auth.requireLogin, canSetup, async (req, res, next) => {
@@ -59,7 +61,7 @@ router.get('/projects/:id/setup', auth.requireLogin, canSetup, async (req, res, 
   if (!p) return next();
   const [[{ n }]] = await pool.query(
     'SELECT COUNT(*) n FROM log_progress lp JOIN daily_logs d ON d.id = lp.log_id WHERE d.project_id = ?', [p.id]);
-  res.send(views.setupDesignPage({ user: req.session.user, project: p, locked: n > 0 }));
+  res.send(views.setupDesignPage({ user: req.session.user, project: p, locked: n > 0, mapsKey: config.mapsKey }));
 });
 
 // ---- design API ----
@@ -69,7 +71,9 @@ router.get('/api/projects/:id/design', auth.requireLogin, async (req, res) => {
   const [lines] = await pool.query('SELECT id, item, source_layer, length_ft, points_json FROM project_lines WHERE project_id = ? ORDER BY id', [p.id]);
   const [sts] = await pool.query('SELECT id, kind, line_id, station_ft, x, y FROM project_structures WHERE project_id = ? ORDER BY id', [p.id]);
   res.json({
-    project: { id: p.id, job_no: p.job_no, wo_no: p.wo_no, name: p.name, has_curb: !!p.has_curb },
+    project: { id: p.id, job_no: p.job_no, wo_no: p.wo_no, name: p.name, has_curb: !!p.has_curb, crs: p.crs,
+      lat: p.latitude == null ? null : Number(p.latitude), lng: p.longitude == null ? null : Number(p.longitude) },
+    mapsKey: config.mapsKey ? true : false,
     viewBox: p.view_box ? JSON.parse(p.view_box) : null,
     background: p.background_json ? JSON.parse(p.background_json) : null,
     lines: lines.map((l) => ({ id: l.id, item: l.item, layer: l.source_layer, ft: Number(l.length_ft), pts: JSON.parse(l.points_json) })),
@@ -124,8 +128,15 @@ router.post('/api/projects/:id/design', auth.requireLogin, canSetup, express.jso
     const bg = b.background && typeof b.background === 'object' ? b.background : {};
     const vb = Array.isArray(b.viewBox) && b.viewBox.length === 4 && b.viewBox.every(Number.isFinite) ? b.viewBox.map(r2) : null;
     const hasCurb = b.hasCurb === false ? 0 : 1;
-    await conn.query('UPDATE projects SET view_box = ?, background_json = ?, has_curb = ?, status = IF(status = "setup", "active", status) WHERE id = ?',
-      [vb ? JSON.stringify(vb) : null, JSON.stringify(bg), hasCurb, p.id]);
+    const crs = ll.CRS[b.crs] ? b.crs : 'EPSG:2267';
+    // Site location: from the drawing's center, unless one was already picked.
+    let lat = p.latitude, lng = p.longitude;
+    if (vb && (lat == null || lng == null || b.useDrawingLocation)) {
+      const c = ll.toLatLng(crs, (vb[0] + vb[2]) / 2, (vb[1] + vb[3]) / 2);
+      if (ll.looksOklahoma(c)) { lat = Math.round(c.lat * 1e6) / 1e6; lng = Math.round(c.lng * 1e6) / 1e6; }
+    }
+    await conn.query('UPDATE projects SET view_box = ?, background_json = ?, has_curb = ?, crs = ?, latitude = ?, longitude = ?, status = IF(status = "setup", "active", status) WHERE id = ?',
+      [vb ? JSON.stringify(vb) : null, JSON.stringify(bg), hasCurb, crs, lat, lng, p.id]);
     await conn.commit();
     res.json({ ok: true, lines: lines.length, structures: kept, structuresDropped: dropped, totals: await designTotals(p.id) });
   } catch (e) {

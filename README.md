@@ -24,6 +24,12 @@ Runs at **https://cm.aabeng.com** on the GoDaddy cPanel account, as a cPanel Nod
   - The DXF is the 100% quantity. Structures are tied to the nearest line of their utility (within 10 ft) with a station, so they count as done when that stretch is highlighted
 - **Project page**: design quantities and the plan
 
+## Maps
+
+- Drawings are assumed to be Oklahoma state plane, NAD83, US survey feet (North zone by default, South selectable in design setup). Converted with proj4.
+- The site location fills in from the drawing's center when the design is saved (or is picked on a Google map when the project is created).
+- Plan views have a **satellite** button (design lined up on Google's aerial; checked to about 0.1 ft against the projection) and a **my location** button (phone GPS dot, good to roughly 10–15 ft).
+
 ## Settings (cPanel → Setup Node.js App → Environment variables)
 
 | Name | Value |
@@ -33,6 +39,7 @@ Runs at **https://cm.aabeng.com** on the GoDaddy cPanel account, as a cPanel Nod
 | `DB_PASSWORD` | the `cmapp` password |
 | `SESSION_SECRET` | 32+ random characters |
 | `NODE_ENV` | `production` |
+| `GOOGLE_MAPS_KEY` | Google Maps JavaScript API key, restricted to `cm.aabeng.com/*` (optional: turns on the map picker and satellite layer) |
 
 `DB_HOST` defaults to `localhost`, which is right on cPanel.
 
