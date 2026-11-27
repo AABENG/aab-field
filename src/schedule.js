@@ -92,30 +92,53 @@ function status(S, asOf) {
   const hasPlan = Object.keys(S.sched).length > 0;
   const planned = hasPlan ? site(S, plannedOn(S, asOf)) : null;
   const plannedEnd = hasPlan ? Object.values(S.sched).map((s) => s.finish).sort().pop() : null;
-  // Schedule variance: the date the plan expected today's actual percent.
-  let varianceDays = null;
-  if (hasPlan && actual != null) {
-    const first = Object.values(S.sched).map((s) => s.start).sort()[0];
-    let t = null;
-    for (let n = d2n(first) - 1; n <= d2n(plannedEnd); n++) { if (site(S, plannedOn(S, n2d(n))) >= actual - 1e-6) { t = n; break; } }
-    if (t != null) varianceDays = t - d2n(asOf); // negative = behind
-  }
-  // Forecast: recent whole-site progress per calendar day (last 28 days).
-  let forecast = null, ratePerDay = null;
-  const start = S.c.days.length ? S.c.days[0].date : null;
-  if (start && actual != null && actual < 0.999) {
-    const back = Math.min(28, d2n(asOf) - d2n(start));
-    if (back >= 7) {
-      const before = site(S, actualOn(S, addDays(asOf, -back)));
-      ratePerDay = (actual - before) / back;
-      if (ratePerDay > 1e-5) forecast = addDays(asOf, Math.ceil((1 - actual) / ratePerDay));
-    }
-  }
-  const items = ITEMS.filter(([k]) => S.sched[k] || S.c.design[k] || (k === 'earth' && S.c.design.clear)).map(([k, name]) => {
-    const fa = actualOn(S, asOf), fp = hasPlan ? plannedOn(S, asOf) : {};
+  // ---- per item ----
+  // For each item: how far ahead or behind its own planned line it is, and when it
+  // will finish at its own pace over the last four weeks. Items not started yet
+  // carry forward any slip of the items they follow.
+  const fa = actualOn(S, asOf), fp = hasPlan ? plannedOn(S, asOf) : {};
+  const preds = PRED(!!S.p.has_curb), fin = FIN_AFTER(!!S.p.has_curb), now = d2n(asOf);
+  const items = [];
+  for (const [k, name] of ITEMS) {
+    const plan = S.sched[k] || null;
+    if (!plan && !S.c.design[k] && !(k === 'earth' && (S.c.design.clear || S.earth.length)) && !(k === 'clear' && S.c.design.clear)) continue;
+    if (k === 'cb' && !S.p.has_curb && !plan) continue;
     const logged = S.c.days.filter((d) => d.date <= asOf && (k === 'earth' ? d.q.earth : d.q[k])).map((d) => d.date);
-    return { item: k, name, plan: S.sched[k] || null, actual: fa[k], planned: fp[k] ?? null, firstWork: logged[0] || null, lastWork: logged[logged.length - 1] || null };
-  });
+    let firstWork = logged[0] || null, lastWork = logged[logged.length - 1] || null;
+    if (k === 'earth') { const fl = S.earth.filter((e) => e.as_of <= asOf); if (!firstWork && fl.length) firstWork = fl[0].as_of; const done = fl.find((e) => e.pct >= 100); if (done) lastWork = done.as_of; }
+    const act = fa[k] || 0, pl = fp[k] ?? null;
+    let state, varianceDays = null, forecast = null, rate = null;
+    if (act >= 0.999) {
+      state = 'done'; forecast = lastWork || asOf;
+      if (plan) varianceDays = d2n(plan.finish) - d2n(forecast);
+    } else if (act > 0) {
+      state = 'working';
+      const win = Math.max(7, Math.min(28, now - d2n(firstWork || asOf) + 1));
+      const before = actualOn(S, n2d(now - win))[k] || 0;
+      rate = (act - before) / win;
+      if (rate > 1e-5) forecast = n2d(now + Math.ceil((1 - act) / rate));
+      else state = 'stalled';
+      if (plan) { const a0 = d2n(plan.start), len = d2n(plan.finish) - a0 + 1; varianceDays = Math.round(a0 - 1 + act * len - now); }
+    } else if (plan && now >= d2n(plan.start)) {
+      state = 'late'; varianceDays = d2n(plan.start) - now;
+      forecast = n2d(d2n(plan.finish) + (now - d2n(plan.start)));
+    } else state = 'not started';
+    items.push({ item: k, name, plan, actual: act, planned: pl, state, varianceDays, forecast, rate, firstWork, lastWork });
+  }
+  // Items not started: shift their planned finish by their predecessors' slip.
+  const byK = Object.fromEntries(items.map((i) => [i.item, i]));
+  for (const it of items) {
+    if (!it.plan || (it.state !== 'not started' && it.state !== 'late')) continue;
+    let slip = it.state === 'late' ? now - d2n(it.plan.start) : 0;
+    for (const pk of preds[it.item] || []) { const q = byK[pk]; if (q && q.plan && q.forecast) slip = Math.max(slip, d2n(q.forecast) - d2n(q.plan.finish)); }
+    let f = d2n(it.plan.finish) + Math.max(0, slip);
+    // and it can't finish before the work it must follow (subgrade a week after the utilities, etc.)
+    for (const [pk, gap] of fin[it.item] || []) { const q = byK[pk]; if (q && q.forecast) f = Math.max(f, d2n(q.forecast) + gap); }
+    it.forecast = n2d(f);
+  }
+  const fc = items.map((i) => i.forecast).filter(Boolean).sort();
+  const forecast = items.some((i) => i.state === 'stalled') || !fc.length ? null : fc.pop();
+  const varianceDays = null, ratePerDay = null;
   return { ntp, days, contractEnd, asOf, elapsed: ntp ? Math.max(0, d2n(asOf) - d2n(ntp)) : null, actual, planned, plannedEnd, varianceDays, forecast, ratePerDay, items, hasPlan };
 }
 

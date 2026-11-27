@@ -24,18 +24,27 @@ test('a proposal follows the order of work and uses contractor history', () => {
   assert.ok(P.pv.finish >= P.cb.finish && P.sg.finish >= P.wl.finish);
 });
 
-test('planned vs actual, variance in days, and forecast', () => {
+test('each item: done vs planned, days behind, forecast; later items carry the delay', () => {
   const S = base();
   S.sched = { ss: { start: '2026-02-01', finish: '2026-02-10' }, sd: { start: '2026-02-01', finish: '2026-02-10' }, wl: { start: '2026-02-01', finish: '2026-02-10' },
     sg: { start: '2026-02-11', finish: '2026-02-20' }, cb: { start: '2026-02-11', finish: '2026-02-20' }, pv: { start: '2026-02-11', finish: '2026-02-20' } };
-  // 50 LF of each utility per day from Feb 1 to Feb 10
-  for (let i = 0; i < 10; i++) S.c.days.push({ date: Sch.addDays('2026-02-01', i), q: { ss: 50, sd: 25, wl: 40 } });
+  // sanitary 50 LF/day (half its planned pace), storm 50/day (on pace), water not started
+  for (let i = 0; i < 10; i++) S.c.days.push({ date: Sch.addDays('2026-02-01', i), q: { ss: 50, sd: 50 } });
   const st = Sch.status(S, '2026-02-10');
-  assert.ok(Math.abs(st.actual - 150 / 500) < 1e-9, 'utilities half done: 300 of 500 weight * 0.5');
-  assert.ok(Math.abs(st.planned - 300 / 500) < 1e-9, 'plan expects utilities finished');
-  assert.ok(st.varianceDays < 0, 'behind schedule');
-  assert.equal(st.contractEnd, '2026-07-04');
-  assert.ok(st.forecast > '2026-02-10');
+  const it = Object.fromEntries(st.items.map((i) => [i.item, i]));
+  assert.equal(it.ss.state, 'working'); assert.equal(it.ss.actual, 0.5); assert.equal(it.ss.planned, 1);
+  assert.equal(it.ss.varianceDays, -5, 'half done on the last planned day = 5 days behind');
+  assert.equal(it.ss.forecast, '2026-02-20', '500 LF left at 50 LF/day');
+  assert.equal(it.sd.state, 'done'); assert.equal(it.sd.varianceDays, 0);
+  assert.equal(it.wl.state, 'late'); assert.equal(it.wl.varianceDays, -9);
+  assert.equal(it.sg.state, 'not started');
+  assert.equal(it.wl.forecast, '2026-02-20', 'waterline follows sanitary, so it carries its 10-day slip');
+  assert.equal(it.sg.forecast, '2026-03-02', 'subgrade carries the waterline slip');
+  assert.equal(it.pv.forecast, '2026-03-10', 'curb 3 days after subgrade, paving 5 after curb');
+  assert.equal(st.forecast, '2026-03-10'); assert.equal(st.contractEnd, '2026-07-04');
+  const P = require('../src/schedulePages');
+  assert.match(P.statusLine(st), /Sanitary sewer 5 days behind/);
+  assert.match(P.statusLine(st), /Waterline not started · 9 days late starting/);
 });
 
 test('NAS folder paths are made safe for the QNAP share', () => {

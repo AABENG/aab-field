@@ -115,18 +115,38 @@ function build(data, c, weekStart, opt = {}) {
   if (sc) {
     const st = sc.st, nd = (d) => (d ? `${nice(d)}, ${d.slice(0, 4)}` : '—');
     section('Schedule');
-    const v = st.varianceDays, vt = v == null ? '' : v === 0 ? 'on schedule' : v < 0 ? `${-v} days behind` : `${v} days ahead`;
+    const { itemStatus } = require('./schedulePages');
+    const stalled = st.items.filter((i) => i.state === 'stalled').map((i) => i.name);
+    const fcTxt = st.forecast ? `${nd(st.forecast)}${st.contractEnd ? ` (${Math.abs(R_d2n(st.forecast) - R_d2n(st.contractEnd))} days ${st.forecast > st.contractEnd ? 'after' : 'before'} contract)` : ''}`
+      : stalled.length ? `none yet: no progress on ${stalled.join(', ').toLowerCase()} in 4 weeks` : 'not enough progress yet';
+    const late = st.forecast && st.contractEnd && st.forecast > st.contractEnd;
     const rowsS = [
       ['Notice to proceed', nd(st.ntp), 'Contract completion', st.contractEnd ? `${nd(st.contractEnd)} (${st.days} calendar days)` : '—'],
-      ['Contract time used', st.days && st.elapsed != null ? `${st.elapsed} of ${st.days} days (${Math.round(100 * st.elapsed / st.days)}%)` : '—', 'Whole site complete', st.actual != null ? `${Math.round(st.actual * 100)}%${st.planned != null ? ` vs ${Math.round(st.planned * 100)}% planned` : ''}` : '—'],
-      ['Status', vt || '—', 'Forecast completion', st.forecast ? `${nd(st.forecast)}${st.contractEnd ? ` (${Math.abs(R_d2n(st.forecast) - R_d2n(st.contractEnd))} days ${st.forecast > st.contractEnd ? 'after' : 'before'} contract)` : ''}` : 'not enough progress yet'],
+      ['Contract time used', st.days && st.elapsed != null ? `${st.elapsed} of ${st.days} days (${Math.round(100 * st.elapsed / st.days)}%)` : '—', 'Forecast completion', fcTxt],
     ];
     for (const [a, b, c2, d] of rowsS) {
-      pdf.text(M, y, a, { size: 8.5, color: MUTE }); pdf.text(M + 110, y, b, { size: 9, bold: a === 'Status', color: a === 'Status' && v < 0 ? '#b42318' : INK });
-      pdf.text(M + 280, y, c2, { size: 8.5, color: MUTE }); pdf.text(M + 390, y, d, { size: 9, color: INK });
+      pdf.text(M, y, a, { size: 8.5, color: MUTE }); pdf.text(M + 110, y, b, { size: 9, color: INK });
+      pdf.text(M + 280, y, c2, { size: 8.5, color: MUTE }); pdf.text(M + 390, y, d, { size: 9, bold: c2 === 'Forecast completion', color: c2 === 'Forecast completion' && late ? '#b42318' : INK });
       y += 14;
     }
-    pdf.text(M, y + 1, 'Whole-site percent is weighted by each item’s dollar value. Forecast uses the last four weeks’ pace. See the schedule page.', { size: 7.5, color: MUTE });
+    y += 4;
+    const sc0 = [M, M + 120, M + 245, M + 330, M + 455];
+    ['Item', 'Planned', 'Done / planned', 'Status', 'Forecast finish'].forEach((h, i) => pdf.text(sc0[i], y, h, { size: 8, bold: true, color: MUTE }));
+    y += 13;
+    let sh = false;
+    for (const it of st.items.filter((i) => i.plan || i.firstWork)) {
+      if (sh) pdf.rect(M - 4, y - 3, CW + 8, 14, { fill: '#f3f5f9' });
+      sh = !sh;
+      const bad = (it.state === 'late' || it.state === 'stalled' || (it.state === 'working' && it.varianceDays < 0));
+      pdf.rect(sc0[0], y + 1, 6, 6, { fill: COLOR[it.item] || ACCENT });
+      pdf.text(sc0[0] + 11, y, it.name, { size: 9, color: INK });
+      pdf.text(sc0[1], y, it.plan ? `${md(it.plan.start)} – ${md(it.plan.finish)}` : 'not scheduled', { size: 9, color: it.plan ? INK : MUTE });
+      pdf.text(sc0[2], y, `${Math.round((it.actual || 0) * 100)}%${it.planned != null ? ` / ${Math.round(it.planned * 100)}%` : ''}`, { size: 9, color: INK });
+      pdf.text(sc0[3], y, itemStatus(it), { size: 9, bold: bad, color: bad ? '#b42318' : it.state === 'not started' ? MUTE : INK });
+      pdf.text(sc0[4], y, it.forecast ? (it.state === 'done' ? `finished ${md(it.forecast)}` : nd(it.forecast)) : '—', { size: 9, color: it.state === 'not started' ? MUTE : INK });
+      y += 14;
+    }
+    pdf.text(M, y + 1, 'Behind/ahead is measured against each item’s own planned line. Forecasts use each item’s last four weeks’ pace; items not started carry the delay of the work before them.', { size: 7.5, color: MUTE });
     y += 18;
   }
 
@@ -365,63 +385,59 @@ const R_d2n = (d) => Math.floor(Date.parse(String(d).slice(0, 10) + 'T12:00:00Z'
 const R_n2d = (n) => new Date(n * 864e5).toISOString().slice(0, 10);
 const SNAME = { clear: 'Clearing', earth: 'Earthwork', ss: 'Sanitary sewer', sd: 'Storm sewer', wl: 'Waterline', sg: 'Subgrade', cb: 'Curb and gutter', pv: 'Paving' };
 
-// S-curve (whole site, planned vs actual vs forecast) and a bar chart by item.
+// One row per item: planned span, days worked, and a dashed run on to its forecast finish.
 function schedulePage(pdf, data, sc, weekStart, weekEnd, header) {
-  const { S, st } = sc, Sch = require('./schedule');
+  const { S, st } = sc, { itemStatus } = require('./schedulePages');
   pdf.addPage(792, 612);
   const top = header('Schedule');
   const sched = Object.values(S.sched);
-  const from = [st.ntp, sched.map((x) => x.start).sort()[0], data.logs[0] && data.logs[0].date].filter(Boolean).sort()[0];
-  const to = [st.contractEnd, st.plannedEnd, st.forecast, weekEnd].filter(Boolean).sort().pop();
-  const a = R_d2n(from), b = R_d2n(to);
-  const L = 150, R = 792 - 40, X = (d) => L + (R_d2n(d) - a) / Math.max(1, b - a) * (R - L);
-  // ---- S-curve ----
-  pdf.text(40, top + 6, 'WHOLE SITE PERCENT COMPLETE', { size: 8, bold: true, color: ACCENT });
-  const cy0 = top + 24, ch = 160, Y = (f) => cy0 + (1 - f) * ch;
-  [0, 0.25, 0.5, 0.75, 1].forEach((f) => { pdf.line(L, Y(f), R, Y(f), { stroke: '#e6eaf2', width: 0.6 }); pdf.text(L - 6, Y(f) - 4, `${f * 100}%`, { size: 7, color: MUTE, align: 'right' }); });
-  const ser = Sch.series(S, from, to);
-  const pl = ser.filter((p) => p.planned != null).map((p) => [X(p.date), Y(p.planned)]);
-  if (pl.length > 1) pdf.path(pl, { stroke: '#8a94a8', width: 1.6 });
-  const ac = ser.filter((p) => p.date <= weekEnd && p.actual != null).map((p) => [X(p.date), Y(p.actual)]);
-  if (ac.length > 1) pdf.path(ac, { stroke: ACCENT, width: 2.4 });
-  if (st.forecast && st.actual != null) pdf.path([[X(weekEnd), Y(st.actual)], [X(st.forecast), Y(1)]], { stroke: ACCENT, width: 1.4, dash: [5, 3] });
-  const vline = (d, col, label, yy) => {
-    if (!d) return; pdf.line(X(d), cy0, X(d), cy0 + ch, { stroke: col, width: 0.9, dash: [3, 2] });
-    const left = X(d) + 3 + pdf.width(label, 7) > 792 - 30;
-    pdf.text(left ? X(d) - 3 : X(d) + 3, yy, label, { size: 7, color: col, align: left ? 'right' : 'left' });
-  };
-  vline(weekEnd, '#3b4660', `Week ending ${md(weekEnd)}`, cy0 + 2);
-  vline(st.contractEnd, '#b42318', `Contract completion ${md(st.contractEnd)}`, cy0 + 12);
-  if (st.forecast) vline(st.forecast, ACCENT, `Forecast ${md(st.forecast)}`, cy0 + 22);
-  // legend
-  let lx = L; const ly = cy0 + ch + 8;
-  [['Planned', '#8a94a8', 1.6, null], ['Actual', ACCENT, 2.4, null], ['Forecast at the last four weeks’ pace', ACCENT, 1.4, [5, 3]]].forEach(([t, col, w, dash]) => {
-    pdf.line(lx, ly + 4, lx + 20, ly + 4, { stroke: col, width: w, dash }); pdf.text(lx + 25, ly, t, { size: 7.5, color: INK }); lx += 35 + pdf.width(t, 7.5);
-  });
-  // ---- bars by item ----
-  let y = ly + 24;
-  pdf.text(40, y, 'BY ITEM', { size: 8, bold: true, color: ACCENT });
-  // month ticks
-  for (let n = a; n <= b; n++) { const d = R_n2d(n); if (d.endsWith('-01') || n === a) { pdf.line(X(d), y + 12, X(d), 612 - 70, { stroke: '#eef1f6', width: 0.6 }); pdf.text(X(d) + 2, y + 2, `${MON[+d.slice(5, 7) - 1]} \u2019${d.slice(2, 4)}`, { size: 6.5, color: MUTE }); } }
-  y += 16;
   const rows = st.items.filter((it) => it.plan || it.firstWork);
-  const rh = Math.min(26, (612 - 70 - y) / Math.max(1, rows.length));
+  const from = [st.ntp, sched.map((x) => x.start).sort()[0], rows.map((r) => r.firstWork).filter(Boolean).sort()[0]].filter(Boolean).sort()[0];
+  const to = [st.contractEnd, st.plannedEnd, st.forecast, ...rows.map((r) => r.forecast), weekEnd].filter(Boolean).sort().pop();
+  const a = R_d2n(from), b = R_d2n(to) + 3;
+  const L = 175, R = 792 - 190, X = (d) => L + (R_d2n(d) - a) / Math.max(1, b - a) * (R - L);
+  const SX = R + 14; // status column
+  let y = top + 8;
+  pdf.text(40, y, 'BY ITEM', { size: 8, bold: true, color: ACCENT });
+  pdf.text(L - 6, y, 'Done / planned', { size: 7.5, bold: true, color: MUTE, align: 'right' });
+  pdf.text(SX, y, 'Status · forecast finish', { size: 7.5, bold: true, color: MUTE });
+  y += 16;
+  const y0 = y, bottom = 612 - 78;
+  for (let n = a; n <= b; n++) { const d = R_n2d(n); if (d.endsWith('-01') || n === a) { pdf.line(X(d), y0 + 10, X(d), bottom, { stroke: '#eef1f6', width: 0.6 }); pdf.text(X(d) + 2, y0, `${MON[+d.slice(5, 7) - 1]} \u2019${d.slice(2, 4)}`, { size: 6.5, color: MUTE }); } }
+  y += 14;
+  const rh = Math.min(46, (bottom - y) / Math.max(1, rows.length));
   for (const it of rows) {
-    const col = COLOR[it.item] || ACCENT;
-    pdf.text(40, y + rh / 2 - 5, SNAME[it.item] || it.item, { size: 8.5, color: INK });
-    pdf.text(L - 6, y + rh / 2 - 5, `${it.actual != null ? Math.round(it.actual * 100) : 0}%${it.planned != null ? ' / ' + Math.round(it.planned * 100) + '%' : ''}`, { size: 7.5, color: MUTE, align: 'right' });
-    if (it.plan) pdf.rect(X(it.plan.start), y + 3, Math.max(1.5, X(R_n2d(R_d2n(it.plan.finish) + 1)) - X(it.plan.start)), rh * 0.36, { fill: '#dfe4ee' });
+    const col = COLOR[it.item] || ACCENT, mid = y + rh / 2;
+    const bad = it.state === 'late' || it.state === 'stalled' || (it.state === 'working' && it.varianceDays < 0);
+    pdf.text(40, mid - 5, SNAME[it.item] || it.item, { size: 9.5, bold: true, color: INK });
+    pdf.text(L - 6, mid - 5, `${Math.round((it.actual || 0) * 100)}%${it.planned != null ? ' / ' + Math.round(it.planned * 100) + '%' : ''}`, { size: 8.5, color: INK, align: 'right' });
+    const bh = Math.min(9, rh * 0.28);
+    if (it.plan) pdf.rect(X(it.plan.start), mid - bh - 1, Math.max(1.5, X(R_n2d(R_d2n(it.plan.finish) + 1)) - X(it.plan.start)), bh, { fill: '#dfe4ee' });
     if (it.firstWork) {
-      const end = it.actual >= 0.999 ? it.lastWork : weekEnd;
-      pdf.rect(X(it.firstWork), y + 3 + rh * 0.4, Math.max(1.5, X(R_n2d(R_d2n(end) + 1)) - X(it.firstWork)), rh * 0.36, { fill: col });
+      const end = it.state === 'done' ? it.lastWork : weekEnd;
+      pdf.rect(X(it.firstWork), mid + 1, Math.max(1.5, X(R_n2d(R_d2n(end) + 1)) - X(it.firstWork)), bh, { fill: col });
     }
+    if (it.forecast && it.state !== 'done') {
+      const s0 = it.firstWork && it.state !== 'not started' && it.state !== 'late' ? R_n2d(R_d2n(weekEnd) + 1) : (it.state === 'late' ? R_n2d(R_d2n(weekEnd) + 1) : it.plan.start);
+      const x0 = X(s0), x1 = X(R_n2d(R_d2n(it.forecast) + 1));
+      if (x1 > x0) pdf.path([[x0, mid + 1], [x1, mid + 1], [x1, mid + 1 + bh], [x0, mid + 1 + bh]], { stroke: col, width: 0.9, dash: [3, 2], close: true });
+    }
+    pdf.text(SX, mid - 10, itemStatus(it), { size: 8.5, bold: bad, color: bad ? '#b42318' : it.state === 'not started' ? MUTE : INK });
+    pdf.text(SX, mid + 2, it.forecast ? (it.state === 'done' ? `finished ${nice(it.forecast)}, ${it.forecast.slice(0, 4)}` : `forecast ${nice(it.forecast)}, ${it.forecast.slice(0, 4)}`) : it.state === 'stalled' ? 'no forecast' : '', { size: 8, color: MUTE });
+    pdf.line(40, y + rh, 792 - 40, y + rh, { stroke: '#eef1f6', width: 0.6 });
     y += rh;
   }
-  pdf.line(X(weekEnd), cy0 + ch + 40, X(weekEnd), y, { stroke: '#3b4660', width: 0.9, dash: [3, 2] });
-  if (st.contractEnd) pdf.line(X(st.contractEnd), cy0 + ch + 40, X(st.contractEnd), y, { stroke: '#b42318', width: 0.9, dash: [3, 2] });
-  pdf.rect(40, 612 - 62, 20, 6, { fill: '#dfe4ee' }); pdf.text(64, 612 - 64, 'Planned (from the schedule)', { size: 7.5, color: INK });
-  pdf.rect(200, 612 - 62, 20, 6, { fill: '#3b4660' }); pdf.text(224, 612 - 64, 'Worked (first day to this week, or to the last day when finished)', { size: 7.5, color: INK });
-  pdf.text(500, 612 - 64, 'Percentages: actual / planned this week', { size: 7.5, color: MUTE });
+  const vline = (d, col, label, ly) => {
+    if (!d) return; pdf.line(X(d), y0 + 10, X(d), y, { stroke: col, width: 0.9, dash: [3, 2] });
+    const left = X(d) + 3 + pdf.width(label, 7) > R; pdf.text(left ? X(d) - 3 : X(d) + 3, ly, label, { size: 7, color: col, align: left ? 'right' : 'left' });
+  };
+  vline(weekEnd, '#3b4660', `Week ending ${md(weekEnd)}`, y + 4);
+  vline(st.contractEnd, '#b42318', `Contract completion ${md(st.contractEnd)}`, y + 14);
+  // legend
+  const ly = 612 - 64;
+  pdf.rect(40, ly + 2, 20, 6, { fill: '#dfe4ee' }); pdf.text(64, ly, 'Planned', { size: 7.5, color: INK });
+  pdf.rect(115, ly + 2, 20, 6, { fill: '#3b4660' }); pdf.text(139, ly, 'Worked (first day to this week, or to the last day when finished)', { size: 7.5, color: INK });
+  pdf.path([[400, ly + 2], [420, ly + 2], [420, ly + 8], [400, ly + 8]], { stroke: '#3b4660', width: 0.9, dash: [3, 2], close: true }); pdf.text(424, ly, 'Forecast at the item’s last four weeks’ pace', { size: 7.5, color: INK });
 }
 
 function prep(l) { if (l.cum) return; l.cum = [0]; for (let i = 1; i < l.pts.length; i++) l.cum.push(l.cum[i - 1] + Math.hypot(l.pts[i][0] - l.pts[i - 1][0], l.pts[i][1] - l.pts[i - 1][1])); l.len = l.cum[l.cum.length - 1]; }

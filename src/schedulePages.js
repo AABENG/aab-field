@@ -14,38 +14,23 @@ const nice = (d) => (d ? `${MON[+d.slice(5, 7) - 1]} ${+d.slice(8, 10)}, ${d.sli
 const md = (d) => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
 const pct = (f) => (f == null ? '—' : `${Math.round(f * 100)}%`);
 const today = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
-const money = (n) => (n == null ? '' : Math.round(n).toLocaleString('en-US'));
-const UNIT = { clear: 'AC', earth: 'AC (site)', ss: 'LF', mh: 'EA', sd: 'LF', st: 'EA', wl: 'LF', fh: 'EA', vv: 'EA', sg: 'LF', cb: 'LF', pv: 'LF' };
-const WNAME = { clear: 'Clearing', earth: 'Earthwork', ss: 'Sanitary sewer pipe', mh: 'Sanitary manholes', sd: 'Storm sewer pipe', st: 'Storm structures',
-  wl: 'Waterline pipe', fh: 'Fire hydrants', vv: 'Water valves', sg: 'Subgrade', cb: 'Curb and gutter', pv: 'Paving' };
 
+const dayTxt = (v) => (v == null ? '' : v === 0 ? 'on schedule' : `${Math.abs(v)} day${Math.abs(v) === 1 ? '' : 's'} ${v < 0 ? 'behind' : 'ahead'}`);
+// One item's status in words: "9 days behind", "done 3 days early", "should have started 4 days ago".
+function itemStatus(it) {
+  if (it.state === 'done') return it.varianceDays == null ? 'done' : it.varianceDays === 0 ? 'done on time' : `done ${Math.abs(it.varianceDays)} day${Math.abs(it.varianceDays) === 1 ? '' : 's'} ${it.varianceDays > 0 ? 'early' : 'late'}`;
+  if (it.state === 'stalled') return `no progress in 4 weeks${it.varianceDays != null ? ` · ${dayTxt(it.varianceDays)}` : ''}`;
+  if (it.state === 'late') return `not started · ${-it.varianceDays} day${it.varianceDays === -1 ? '' : 's'} late starting`;
+  if (it.state === 'working') return it.varianceDays == null ? 'under way' : dayTxt(it.varianceDays);
+  return 'not started';
+}
+// Email / page summary: items under way (or late to start), then the completion forecast.
 function statusLine(st) {
   if (!st.ntp && !st.hasPlan) return 'Set the notice to proceed date and contract days, then propose a schedule.';
-  const v = st.varianceDays;
-  const vt = v == null ? '' : v === 0 ? 'on schedule' : v < 0 ? `${-v} day${v === -1 ? '' : 's'} behind` : `${v} day${v === 1 ? '' : 's'} ahead`;
-  return [st.actual != null ? `${pct(st.actual)} complete` : null, st.planned != null ? `${pct(st.planned)} planned` : null, vt || null,
-    st.forecast ? `forecast completion ${nice(st.forecast)}` : null, st.contractEnd ? `contract completion ${nice(st.contractEnd)}` : null].filter(Boolean).join(' · ');
-}
-
-// Small S-curve for the page (SVG).
-function curveSvg(S, st) {
-  const sched = Object.values(S.sched);
-  const from = [st.ntp, sched.map((s) => s.start).sort()[0], S.c.days[0] && S.c.days[0].date].filter(Boolean).sort()[0];
-  const to = [st.contractEnd, st.plannedEnd, st.forecast, st.asOf].filter(Boolean).sort().pop();
-  if (!from || !to || to <= from) return '';
-  const ser = Sch.series(S, from, to), W = 760, H = 220, L = 40, B = 24;
-  const x = (d) => L + (Sch.d2n(d) - Sch.d2n(from)) / (Sch.d2n(to) - Sch.d2n(from)) * (W - L - 10);
-  const y = (f) => 8 + (1 - f) * (H - B - 8);
-  const path = (key, upto) => ser.filter((p) => p[key] != null && (!upto || p.date <= upto)).map((p, i) => `${i ? 'L' : 'M'}${x(p.date).toFixed(1)} ${y(p[key]).toFixed(1)}`).join(' ');
-  const vline = (d, col, label) => (d ? `<line x1="${x(d)}" x2="${x(d)}" y1="8" y2="${H - B}" stroke="${col}" stroke-dasharray="4 3"/><text x="${x(d) + 3}" y="18" fill="${col}" font-size="10">${label}</text>` : '');
-  const fc = st.forecast && st.actual != null ? `<path d="M${x(st.asOf)} ${y(st.actual)} L${x(st.forecast)} ${y(1)}" stroke="var(--accent2)" stroke-dasharray="5 4" fill="none" stroke-width="2"/>` : '';
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;max-width:${W}px;font-family:inherit">
-    ${[0, 0.25, 0.5, 0.75, 1].map((f) => `<line x1="${L}" x2="${W - 10}" y1="${y(f)}" y2="${y(f)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(f) + 3}" text-anchor="end" fill="var(--mute)" font-size="10">${f * 100}%</text>`).join('')}
-    <text x="${L}" y="${H - 6}" fill="var(--mute)" font-size="10">${nice(from)}</text><text x="${W - 10}" y="${H - 6}" text-anchor="end" fill="var(--mute)" font-size="10">${nice(to)}</text>
-    ${vline(st.asOf, 'var(--mute)', 'today')}${vline(st.contractEnd, '#e5484d', 'contract')}
-    <path d="${path('planned')}" stroke="var(--mute)" stroke-width="2" fill="none"/>
-    <path d="${path('actual', st.asOf)}" stroke="var(--accent2)" stroke-width="3" fill="none"/>${fc}
-  </svg><div class="mute" style="font-size:12px">Gray: planned · Blue: actual · Dashed: forecast at the last four weeks' pace</div>`;
+  const parts = st.items.filter((i) => ['working', 'stalled', 'late'].includes(i.state)).map((i) => `${i.name} ${itemStatus(i)}`);
+  if (st.forecast) parts.push(`forecast completion ${nice(st.forecast)}${st.contractEnd ? ` (contract ${nice(st.contractEnd)})` : ''}`);
+  else if (st.contractEnd) parts.push(`contract completion ${nice(st.contractEnd)}`);
+  return parts.join(' · ') || 'No work under way.';
 }
 
 router.get('/projects/:id/schedule', auth.requireLogin, canEdit, async (req, res, next) => {
@@ -60,7 +45,6 @@ router.get('/projects/:id/schedule', auth.requireLogin, canEdit, async (req, res
     <a class="btn sm sec" href="/projects/${p.id}">Back to project</a></div>
     ${req.query.msg ? `<p class="notice">${esc(req.query.msg)}</p>` : ''}
     <p><b>${esc(statusLine(st))}</b></p>
-    ${curveSvg(S, st)}
   </div>
 
   <div class="card"><h2>Contract</h2>
@@ -79,25 +63,15 @@ router.get('/projects/:id/schedule', auth.requireLogin, canEdit, async (req, res
   <div class="card"><div class="head"><h2 style="margin:0">Planned dates by item</h2>
     <form method="post" action="/projects/${p.id}/schedule/propose" class="inline"><button class="btn sm sec" ${st.ntp ? '' : 'disabled title="Set the notice to proceed date first"'}>Propose from contractor history</button></form></div>
     <p class="mute">A proposal uses the contractors' production rates and the usual gaps between items from <a href="/history">contractor history</a>. It replaces rows marked "proposed". Rows marked "contractor's schedule" are kept, so enter the contractor's dates there when you get them.</p>
-    <form method="post" action="/projects/${p.id}/schedule/items"><table><thead><tr><th>Item</th><th>Start</th><th>Finish</th><th class="n">Days</th><th>Source</th><th class="n">Planned today</th><th class="n">Actual</th><th>Worked</th></tr></thead><tbody>
+    <form method="post" action="/projects/${p.id}/schedule/items"><table><thead><tr><th>Item</th><th>Start</th><th>Finish</th><th class="n">Days</th><th>Source</th><th class="n">Done / planned today</th><th>Status</th><th>Forecast finish</th><th>Worked</th></tr></thead><tbody>
     ${items.map(([k, n]) => { const s = S.sched[k] || {}; const it = st.items.find((x) => x.item === k) || {};
       return `<tr><td>${n}</td><td><input type="date" name="start_${k}" value="${esc(s.start || '')}" style="width:140px"></td><td><input type="date" name="finish_${k}" value="${esc(s.finish || '')}" style="width:140px"></td>
       <td class="n">${s.start && s.finish ? Sch.d2n(s.finish) - Sch.d2n(s.start) + 1 : ''}</td>
       <td><select name="source_${k}" style="min-width:150px">${[['proposed', 'proposed'], ['contractor', "contractor's schedule"], ['manual', 'set by AAB']].map(([v, l]) => `<option value="${v}" ${s.source === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
-      <td class="n">${pct(it.planned)}</td><td class="n">${pct(it.actual)}</td><td class="mute" style="white-space:nowrap">${it.firstWork ? `${md(it.firstWork)} – ${md(it.lastWork)}` : ''}</td></tr>`; }).join('')}
+      <td class="n" style="white-space:nowrap">${pct(it.actual)} / ${pct(it.planned)}</td>
+      <td style="white-space:nowrap;color:${it.varianceDays != null && it.varianceDays < 0 && it.state !== 'done' ? '#e5484d' : 'inherit'}">${it.state ? esc(itemStatus(it)) : ''}</td>
+      <td style="white-space:nowrap">${it.forecast ? nice(it.forecast) : ''}</td><td class="mute" style="white-space:nowrap">${it.firstWork ? `${md(it.firstWork)} – ${md(it.lastWork)}` : ''}</td></tr>`; }).join('')}
     </tbody></table><button class="btn sm">Save dates</button></form></div>
-
-  <div class="card"><div class="head"><h2 style="margin:0">Weights for whole-site percent</h2>
-    ${S.weightsCustom ? `<form method="post" action="/projects/${p.id}/schedule/weights/reset" class="inline"><button class="btn sm sec">Reset to Grove-based defaults</button></form>` : ''}</div>
-    <p class="mute">Each item counts toward whole-site percent complete by its dollar value. ${S.weightsCustom ? 'These are this job’s amounts.' : 'These defaults are The Grove Phase 1 low-bid unit prices times this job’s design quantities. Enter this job’s contract amounts when you have them.'}</p>
-    <form method="post" action="/projects/${p.id}/schedule/weights"><table><thead><tr><th>Item</th><th class="n">Design quantity</th><th class="n">Amount ($)</th><th class="n">Share</th></tr></thead><tbody>
-    ${(() => { const tot = Object.values(S.weights).reduce((a, b) => a + (b || 0), 0); return Sch.WEIGHT_ITEMS.map((k) => {
-      const q = k === 'earth' ? S.c.design.clear : S.c.design[k];
-      if (!q && !S.weights[k]) return '';
-      return `<tr><td>${WNAME[k]}</td><td class="n">${q ? (UNIT[k].startsWith('AC') ? q.toFixed(2) : Math.round(q).toLocaleString('en-US')) + ' ' + UNIT[k] : '—'}</td>
-        <td class="n"><input name="w_${k}" value="${money(S.weights[k])}" style="width:130px;text-align:right"></td><td class="n">${tot ? Math.round(100 * (S.weights[k] || 0) / tot) + '%' : ''}</td></tr>`; }).join(''); })()}
-    </tbody></table>${!S.c.design.clear ? '<p class="mute">Clearing and earthwork are weighted by the acres inside the limits of clearing, so they need limits of clearing in the design setup (or amounts entered here).</p>' : ''}
-    <button class="btn sm">Save amounts</button></form></div>
 
   <div class="card"><h2>Earthwork percent (from LiDAR volumes)</h2>
     <p class="mute">After each volume flight, enter the earthwork percent complete. Reports use the latest entry on or before the week's end.</p>
@@ -222,4 +196,4 @@ router.post('/history/:id', auth.requireLogin, canEdit, async (req, res) => {
   res.redirect('/history?msg=Saved.');
 });
 
-module.exports = { router, statusLine };
+module.exports = { router, statusLine, itemStatus };
