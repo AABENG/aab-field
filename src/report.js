@@ -93,10 +93,19 @@ function build(data, c, weekStart, opt = {}) {
     y += 15;
   }
   const earthDays = c.days.filter((x) => x.date >= weekStart && x.date <= weekEnd && x.q.earth).length;
-  if (earthDays || data.areas.some((a) => a.kind === 'earth')) {
+  // Earthwork percent comes from the latest LiDAR flight on or before this week's end.
+  const flight = opt.schedule && opt.schedule.S ? (opt.schedule.S.earth || []).filter((e) => e.as_of <= weekEnd).pop() : null;
+  if (earthDays || flight || data.areas.some((a) => a.kind === 'earth')) {
+    if (shade) pdf.rect(M - 4, y - 3, CW + 8, 15, { fill: '#f3f5f9' });
     pdf.text(cols[0], y, 'Earthwork', { size: 9, color: INK });
-    pdf.text(cols[2] + 70, y, earthDays ? `${earthDays} day${earthDays > 1 ? 's' : ''}` : '—', { size: 9, bold: !!earthDays, color: INK, align: 'right' });
-    pdf.text(M + CW, y, 'Active areas each day are on the exhibit', { size: 8, color: MUTE, align: 'right' });
+    pdf.text(cols[2] + 70, y, earthDays ? `${earthDays} day${earthDays > 1 ? 's' : ''}` : '—', { size: 9, bold: !!earthDays, color: earthDays ? INK : MUTE, align: 'right' });
+    if (flight) {
+      const pct = Math.round(flight.pct);
+      pdf.text(cols[3] + 70, y, `LiDAR ${md(flight.as_of)}`, { size: 9, color: INK, align: 'right' });
+      pdf.rect(cols[4] + 6, y + 1.5, 44, 6, { fill: '#e6eaf2' });
+      if (pct) pdf.rect(cols[4] + 6, y + 1.5, 44 * pct / 100, 6, { fill: COLOR.earth });
+      pdf.text(cols[4] + 76, y, pct + '%', { size: 9, color: INK, align: 'right' });
+    } else pdf.text(M + CW, y, 'Active areas each day are on the exhibit', { size: 8, color: MUTE, align: 'right' });
     y += 15;
   }
   pdf.text(M, y + 2, 'Design quantities are taken from the design drawing. Structures are counted when the line through them is recorded.', { size: 7.5, color: MUTE });
@@ -376,7 +385,11 @@ function schedulePage(pdf, data, sc, weekStart, weekEnd, header) {
   const ac = ser.filter((p) => p.date <= weekEnd && p.actual != null).map((p) => [X(p.date), Y(p.actual)]);
   if (ac.length > 1) pdf.path(ac, { stroke: ACCENT, width: 2.4 });
   if (st.forecast && st.actual != null) pdf.path([[X(weekEnd), Y(st.actual)], [X(st.forecast), Y(1)]], { stroke: ACCENT, width: 1.4, dash: [5, 3] });
-  const vline = (d, col, label, yy) => { if (!d) return; pdf.line(X(d), cy0, X(d), cy0 + ch, { stroke: col, width: 0.9, dash: [3, 2] }); pdf.text(X(d) + 3, yy, label, { size: 7, color: col }); };
+  const vline = (d, col, label, yy) => {
+    if (!d) return; pdf.line(X(d), cy0, X(d), cy0 + ch, { stroke: col, width: 0.9, dash: [3, 2] });
+    const left = X(d) + 3 + pdf.width(label, 7) > 792 - 30;
+    pdf.text(left ? X(d) - 3 : X(d) + 3, yy, label, { size: 7, color: col, align: left ? 'right' : 'left' });
+  };
   vline(weekEnd, '#3b4660', `Week ending ${md(weekEnd)}`, cy0 + 2);
   vline(st.contractEnd, '#b42318', `Contract completion ${md(st.contractEnd)}`, cy0 + 12);
   if (st.forecast) vline(st.forecast, ACCENT, `Forecast ${md(st.forecast)}`, cy0 + 22);
@@ -389,7 +402,7 @@ function schedulePage(pdf, data, sc, weekStart, weekEnd, header) {
   let y = ly + 24;
   pdf.text(40, y, 'BY ITEM', { size: 8, bold: true, color: ACCENT });
   // month ticks
-  for (let n = a; n <= b; n++) { const d = R_n2d(n); if (d.endsWith('-01') || n === a) { pdf.line(X(d), y + 12, X(d), 612 - 70, { stroke: '#eef1f6', width: 0.6 }); pdf.text(X(d) + 2, y + 2, `${MON[+d.slice(5, 7) - 1]} ${d.slice(2, 4)}`, { size: 6.5, color: MUTE }); } }
+  for (let n = a; n <= b; n++) { const d = R_n2d(n); if (d.endsWith('-01') || n === a) { pdf.line(X(d), y + 12, X(d), 612 - 70, { stroke: '#eef1f6', width: 0.6 }); pdf.text(X(d) + 2, y + 2, `${MON[+d.slice(5, 7) - 1]} \u2019${d.slice(2, 4)}`, { size: 6.5, color: MUTE }); } }
   y += 16;
   const rows = st.items.filter((it) => it.plan || it.firstWork);
   const rh = Math.min(26, (612 - 70 - y) / Math.max(1, rows.length));
