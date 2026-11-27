@@ -24,7 +24,7 @@ const size = (f) => { try { return fs.statSync(f).size; } catch (e) { return nul
 async function manifest() {
   const lines = [];
   const [reports] = await pool.query(
-    `SELECT r.id, r.pdf_file, r.is_final, r.asbuilt_file, r.summary_file, p.ortho_file, DATE_FORMAT(r.week_ending, '%Y-%m-%d') we, p.id pid, p.job_no, p.name, p.nas_folder
+    `SELECT r.id, r.pdf_file, r.is_final, r.summary_file, DATE_FORMAT(r.week_ending, '%Y-%m-%d') we, p.id pid, p.job_no, p.name, p.nas_folder
        FROM weekly_reports r JOIN projects p ON p.id = r.project_id
       WHERE r.status IN ('approved','sent') AND r.pdf_file IS NOT NULL ORDER BY r.week_ending, p.job_no`);
   for (const r of reports) {
@@ -32,12 +32,10 @@ async function manifest() {
     if (n == null) continue;
     lines.push([`${baseFolder(r)}/Weekly Reports/${clean(r.job_no)} ${r.is_final ? 'FINAL Report' : 'Weekly Report'} - week ending ${r.we}.pdf`, `/archive/file/report/${r.id}`, n, r.pid]);
     // close-out files saved with the approved final report
-    for (const [kind, f, label] of [['asbuilt', r.asbuilt_file, 'As-built exhibit'], ['summary', r.summary_file, 'Schedule summary']]) {
+    for (const [kind, f, label] of [['summary', r.summary_file, 'Schedule summary']]) {
       const m = f ? size(path.join(reportDir(), path.basename(f))) : null;
       if (m != null) lines.push([`${baseFolder(r)}/Close-out/${clean(r.job_no)} ${label}.pdf`, `/archive/file/${kind}/${r.id}`, m, r.pid]);
     }
-    const o = r.is_final && r.asbuilt_file && r.ortho_file ? size(path.join(config.uploadDir, path.basename(r.ortho_file))) : null;
-    if (o != null) lines.push([`${baseFolder(r)}/Close-out/${clean(r.job_no)} As-built flight (cropped).jpg`, `/archive/file/ortho/${r.id}`, o, r.pid]);
   }
   // Photos from weeks whose report is approved.
   const [photos] = await pool.query(
@@ -89,12 +87,9 @@ router.post('/archive/confirm', express.text({ limit: '20mb', type: '*/*' }), as
 router.get('/archive/file/:kind/:id', async (req, res) => {
   if (!keyOk(req)) return res.status(403).send('no');
   let file;
-  if (req.params.kind === 'ortho') {
-    const [[r]] = await pool.query("SELECT p.ortho_file FROM weekly_reports r JOIN projects p ON p.id = r.project_id WHERE r.id = ? AND r.is_final = 1 AND r.status IN ('approved','sent')", [req.params.id]);
-    if (r && r.ortho_file) file = path.join(config.uploadDir, path.basename(r.ortho_file));
-  } else if (req.params.kind === 'asbuilt' || req.params.kind === 'summary') {
-    const [[r]] = await pool.query("SELECT asbuilt_file, summary_file FROM weekly_reports WHERE id = ? AND is_final = 1 AND status IN ('approved','sent')", [req.params.id]);
-    const f = r && (req.params.kind === 'asbuilt' ? r.asbuilt_file : r.summary_file);
+  if (req.params.kind === 'summary') {
+    const [[r]] = await pool.query("SELECT summary_file FROM weekly_reports WHERE id = ? AND is_final = 1 AND status IN ('approved','sent')", [req.params.id]);
+    const f = r && r.summary_file;
     if (f) file = path.join(reportDir(), path.basename(f));
   } else if (req.params.kind === 'report') {
     const [[r]] = await pool.query("SELECT pdf_file FROM weekly_reports WHERE id = ? AND status IN ('approved','sent')", [req.params.id]);

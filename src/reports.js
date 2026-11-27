@@ -91,7 +91,7 @@ const pdfName = (r) => `${r.job_no} ${r.name.replace(/[^\w .-]+/g, '')} - ${r.is
 async function summaryFor(r, ws) {
   const data = await Q.load(r.project_id), c = Q.compute(data), S = await Sch.load(r.project_id);
   const lines = weekSummary(data, c, ws, S && { S, st: Sch.status(S, weekEndOf(ws)) });
-  if (r.is_final) lines.unshift(`FINAL REPORT – substantial completion ${nice(dstr(data.project.substantial_completion))}, ${dstr(data.project.substantial_completion).slice(0, 4)}. As-built exhibit and schedule summary attached.`);
+  if (r.is_final) lines.unshift(`FINAL REPORT – substantial completion ${nice(dstr(data.project.substantial_completion))}, ${dstr(data.project.substantial_completion).slice(0, 4)}. Schedule summary attached.`);
   return lines;
 }
 
@@ -255,8 +255,8 @@ router.post('/reports/:id/approve', auth.requireLogin, canApprove, async (req, r
   let msg = `Approved ${r.name}.`;
   if (r.is_final) {
     try {
-      const f = await require('./closeout').finalize(r.id, req.session.user.id);
-      msg += ` This was the FINAL report, so ${r.name} is now closed and read-only${f && !f.aerial ? ' (no as-built flight was uploaded, so the as-built exhibit has no aerial)' : ''}.`;
+      await require('./closeout').finalize(r.id, req.session.user.id);
+      msg += ` This was the FINAL report, so ${r.name} is now closed and read-only.`;
     } catch (e) { msg += ` Closing the project failed: ${e.message}`; }
   }
   if (r.owner_id) {

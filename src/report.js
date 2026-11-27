@@ -61,7 +61,7 @@ function build(data, c, weekStart, opt = {}) {
   y += 8;
   if (opt.final) {
     pdf.rect(M, y - 4, CW, 18, { fill: '#e8f0ff' });
-    pdf.text(M + 8, y, `FINAL REPORT  ·  Substantial completion ${nice(opt.final.completion)}, ${opt.final.completion.slice(0, 4)}  ·  As-built exhibit and schedule summary attached`, { size: 8.5, bold: true, color: ACCENT });
+    pdf.text(M + 8, y, `FINAL REPORT  ·  Substantial completion ${nice(opt.final.completion)}, ${opt.final.completion.slice(0, 4)}  ·  Schedule summary attached`, { size: 8.5, bold: true, color: ACCENT });
     y += 22;
   }
 
@@ -193,10 +193,7 @@ function build(data, c, weekStart, opt = {}) {
   // ---------- exhibit ----------
   exhibit(pdf, data, c, weekStart, weekEnd, header);
   if (sc) schedulePage(pdf, data, sc, weekStart, weekEnd, header);
-  if (opt.final) {
-    asBuiltPage(pdf, data, c, header, opt.final.asBuilt);
-    scheduleSummaryPage(pdf, header, opt.final.summary);
-  }
+  if (opt.final) scheduleSummaryPage(pdf, header, opt.final.summary);
 
   // ---------- photos ----------
   const photos = weekLogs.flatMap((l) => l.photos.map((ph) => ({ ...ph, date: l.date })));
@@ -462,103 +459,6 @@ function lighten(hex) { const n = [1, 3, 5].map((i) => parseInt(hex.slice(i, i +
 
 
 // ---------- close-out pages ----------
-// The design's extent in drawing feet (lines + clearing limits), padded.
-function frame(data) {
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  const grow = (pts) => pts.forEach(([x, yy]) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; });
-  data.lines.forEach((l) => grow(l.pts)); (data.limits || []).forEach(grow);
-  if (!Number.isFinite(x0)) return null;
-  const pad = 0.05 * Math.max(x1 - x0, y1 - y0);
-  return [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
-}
-// Box the as-built map fills on a landscape page under a header of height `top`.
-const AB_LEGEND = 98;
-const asBuiltBox = (top) => ({ x: 40, y: top + 6, w: 792 - 80, h: 612 - top - 6 - AB_LEGEND });
-
-// Everything installed through `asOf`, on the aerial when there is one.
-function asBuiltPage(pdf, data, c, header, ab) {
-  pdf.addPage(792, 612);
-  const top = header('As-built exhibit');
-  const p = data.project, hasCurb = !!p.has_curb, asOf = ab.asOf;
-  const bb = frame(data);
-  if (!bb) return;
-  const box = asBuiltBox(top);
-  const air = ab.ortho; // the as-built flight: { jpeg, place: { x0, y0, px, py, w, h }, flown }
-  for (const l of data.lines) prep(l);
-  const [x0, y0, x1, y1] = bb, sc = Math.min(box.w / (x1 - x0), box.h / (y1 - y0));
-  const ox = box.x + (box.w - (x1 - x0) * sc) / 2, oy = box.y + (box.h - (y1 - y0) * sc) / 2;
-  const T = (pts) => pts.map(([x, yy]) => [ox + (x - x0) * sc, oy + (y1 - yy) * sc]);
-  const s = sc; // page units per foot
-  const covered = (id, track) => P.union(data.progress.filter((r) => r.line_id === id && r.track === track && r.date <= asOf).map((r) => [r.from, r.to]));
-  const cased = (pts, col, w) => { if (air) pdf.path(pts, { stroke: '#ffffff', width: w + 2.4, opacity: 0.9 }); pdf.path(pts, { stroke: col, width: w }); };
-  pdf.clipRect(box.x, box.y, box.w, box.h, () => {
-    if (air) {
-      pdf.rect(box.x, box.y, box.w, box.h, { fill: '#e9ecf1' });
-      const q = air.place, [[ix, iy], [jx, jy]] = T([[q.x0, q.y0], [q.x0 + q.w * q.px, q.y0 + q.h * q.py]]);
-      pdf.image(air.jpeg, ix, iy, jx - ix, jy - iy, 'stretch');
-    } else {
-      let bg = {}; try { bg = JSON.parse(p.background_json || '{}'); } catch (e) { /* none */ }
-      for (const [k, col, w] of [['other', '#eceff4', 0.3], ['lots', '#d7dde7', 0.4], ['row', '#b9c2d2', 0.5], ['curb', '#a6b0c2', 0.45]]) for (const pts of bg[k] || []) if (Array.isArray(pts) && pts.length > 1 && Array.isArray(pts[0])) pdf.path(T(pts), { stroke: col, width: w });
-    }
-    if (data.limits && data.limits.length) data.limits.forEach((r) => pdf.path(T(r), { stroke: air ? '#ffe680' : '#8a7000', width: 1, dash: [6, 3], close: true }));
-    // streets: subgrade, curb, paving installed along the centerlines
-    const tracks = hasCurb ? [['sg', 6], ['cb', 3.6], ['pv', 1.8]] : [['sg', 6], ['pv', 2.2]];
-    for (const [t, w] of tracks) for (const l of data.lines) if (l.item === 'cl') covered(l.id, t).forEach(([a, b]) => cased(T(sub(l, a, b)), COLOR[t], w));
-    // utilities: installed solid, anything not installed dashed
-    for (const k of ['sd', 'ss', 'wl']) for (const l of data.lines) if (l.item === k) {
-      const done = covered(l.id, 'line');
-      P.minus([[0, l.len]], done).forEach(([a, b]) => pdf.path(T(sub(l, a, b)), { stroke: air ? '#ffffff' : COLOR[k], width: 1, dash: [3, 2.5] }));
-      done.forEach(([a, b]) => cased(T(sub(l, a, b)), COLOR[k], 2.4));
-    }
-    for (const st of data.structures) {
-      const col = COLOR[KIND_ITEM[st.kind]] || INK, [[x, yy]] = T([[st.x, st.y]]), d = c.structDay.get(st.id);
-      if (d && d <= asOf) pdf.circle(x, yy, 3, { fill: col, stroke: '#ffffff', width: 0.8 });
-      else pdf.circle(x, yy, 2.8, { fill: '#ffffff', stroke: col, width: 1 });
-    }
-  });
-  pdf.rect(box.x, box.y, box.w, box.h, { stroke: LINE, width: 0.8 });
-  // north arrow + scale bar (on a white chip so they read over imagery)
-  const nx = box.x + box.w - 22, ny = box.y + 10;
-  pdf.rect(nx - 10, ny - 4, 20, 40, { fill: '#ffffff', opacity: 0.85 });
-  pdf.path([[nx, ny + 22], [nx, ny]], { stroke: INK, width: 1 });
-  pdf.path([[nx - 4, ny + 7], [nx, ny], [nx + 4, ny + 7]], { stroke: INK, width: 1 });
-  pdf.text(nx, ny + 24, 'N', { size: 8, bold: true, align: 'center' });
-  const target = 120 / s, mag = Math.pow(10, Math.floor(Math.log10(target)));
-  const ft = [1, 2, 5, 10].map((m) => m * mag).filter((v) => v <= target).pop() || mag;
-  const sx = box.x + 12, sy = box.y + box.h - 18;
-  pdf.rect(sx - 6, sy - 15, ft * s + 30, 26, { fill: '#ffffff', opacity: 0.85 });
-  pdf.rect(sx, sy, ft * s / 2, 4, { fill: INK }); pdf.rect(sx + ft * s / 2, sy, ft * s / 2, 4, { fill: '#ffffff', stroke: INK, width: 0.6 });
-  pdf.rect(sx, sy, ft * s, 4, { stroke: INK, width: 0.6 });
-  pdf.text(sx, sy - 11, '0', { size: 7 }); pdf.text(sx + ft * s, sy - 11, `${Math.round(ft).toLocaleString('en-US')} ft`, { size: 7, align: 'center' });
-  if (air) {
-    const t = `Aerial: AAB Engineering as-built flight${air.flown ? ', ' + nice(air.flown) + ', ' + air.flown.slice(0, 4) : ''}`;
-    pdf.rect(box.x + box.w - pdf.width(t, 6.5) - 10, box.y + box.h - 13, pdf.width(t, 6.5) + 10, 13, { fill: '#ffffff', opacity: 0.8 });
-    pdf.text(box.x + box.w - 5, box.y + box.h - 10, t, { size: 6.5, color: INK, align: 'right' });
-  }
-
-  // legend: what's installed vs. the design
-  const { toDate } = Q.summarize(c, '1900-01-01', asOf);
-  const f0 = (v) => Math.round(v || 0).toLocaleString('en-US');
-  const rows = [];
-  for (const [k, name, kinds] of UTIL) if (c.design[k]) {
-    rows.push({ col: COLOR[k], w: 2.4, label: name, q: `${f0(toDate[k])} of ${f0(c.design[k])} LF` });
-    for (const kd of kinds) if (c.design[kd]) rows.push({ col: COLOR[k], dot: true, label: KIND_LABEL[kd][0].toUpperCase() + KIND_LABEL[kd].slice(1), q: `${f0(toDate[kd])} of ${f0(c.design[kd])} EA` });
-  }
-  for (const [t] of hasCurb ? [['sg'], ['cb'], ['pv']] : [['sg'], ['pv']]) if (c.design[t]) rows.push({ col: COLOR[t], w: t === 'sg' ? 6 : t === 'cb' ? 3.6 : 2, label: SNAME[t], q: `${f0(toDate[t])} of ${f0(c.design[t])} LF` });
-  let ly = box.y + box.h + 12;
-  pdf.text(40, ly, `INSTALLED THROUGH ${nice(asOf).toUpperCase()}, ${asOf.slice(0, 4)}`, { size: 8, bold: true, color: ACCENT });
-  pdf.text(792 - 40, ly, 'Solid = installed   ·   Dashed / open circle = not installed', { size: 7.5, color: MUTE, align: 'right' });
-  ly += 14;
-  const per = Math.max(3, Math.ceil(rows.length / 4));
-  rows.forEach((r, i) => {
-    const x = 40 + Math.floor(i / per) * 180, yy = ly + (i % per) * 12;
-    if (r.dot) pdf.circle(x + 12, yy + 3.5, 2.8, { fill: r.col, stroke: '#ffffff', width: 0.6 });
-    else pdf.line(x, yy + 3.5, x + 24, yy + 3.5, { stroke: r.col, width: Math.min(r.w, 5) });
-    pdf.text(x + 32, yy, r.label, { size: 8, color: INK });
-    pdf.text(x + 170, yy, r.q, { size: 8, color: INK, align: 'right' });
-  });
-}
-
 // Planned vs. actual for each tracked item, in calendar days.
 function scheduleSummaryPage(pdf, header, sum) {
   pdf.addPage(792, 612);
@@ -616,7 +516,6 @@ function standalone(data, title, draw) {
   });
   return pdf.build({ title: `${p.name} – ${title}` });
 }
-const buildAsBuilt = (data, c, ab) => standalone(data, 'As-built exhibit', (pdf, header) => asBuiltPage(pdf, data, c, header, ab));
 const buildSummary = (data, sum) => standalone(data, 'Schedule summary', (pdf, header) => scheduleSummaryPage(pdf, header, sum));
 
-module.exports = { build, mondayOf, addDays, frame, asBuiltBox, buildAsBuilt, buildSummary };
+module.exports = { build, mondayOf, addDays, buildSummary };
