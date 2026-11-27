@@ -65,17 +65,27 @@ function setupPage({ error, form = {} }) {
 
 const canSetup = (u) => ['owner', 'admin', 'reviewer'].includes(u.role);
 
-function homePage({ user, projects }) {
-  const rows = projects.length ? projects.map((p) => `
-      <tr><td>${esc(p.job_no)}</td><td>${esc(p.wo_no || '')}</td><td><a href="/projects/${p.id}">${esc(p.name)}</a></td><td>${esc(p.client || '')}</td><td><span class="tag ${esc(p.status)}">${esc(p.status)}</span></td></tr>`).join('')
-    : '<tr><td colspan="5" class="mute">No projects yet.</td></tr>';
-  return layout({ title: 'Projects', user, body: `
+function homePage({ user, projects, tab = 'active', filters = {}, owners = [], contractors = [], years = [] }) {
+  const closed = tab === 'closed';
+  const sel = (name, list, cur, all) => `<select name="${name}" onchange="this.form.submit()"><option value="">${all}</option>${list.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(cur || '') ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>`;
+  const rows = projects.length ? projects.map((p) => closed
+    ? `<tr><td>${esc(p.job_no)}</td><td>${esc(p.wo_no || '')}</td><td><a href="/projects/${p.id}">${esc(p.name)}</a></td><td>${esc(p.owner || '')}</td><td>${esc(p.contractors || '')}</td>
+        <td>${esc(p.completion || '')}</td><td>${p.archived ? '<span class="tag active">archived</span>' : '<span class="tag setup">waiting for NAS</span>'}</td></tr>`
+    : `<tr><td>${esc(p.job_no)}</td><td>${esc(p.wo_no || '')}</td><td><a href="/projects/${p.id}">${esc(p.name)}</a></td><td>${esc(p.owner || p.client || '')}</td><td><span class="tag ${esc(p.status)}">${esc(p.status)}</span></td></tr>`).join('')
+    : `<tr><td colspan="${closed ? 7 : 5}" class="mute">${closed ? 'No closed projects match.' : 'No active projects.'}</td></tr>`;
+  return layout({ title: 'Projects', user, wide: closed, body: `
     <div class="card">
       <div class="head"><h1>Projects</h1>${canSetup(user) ? '<a class="btn sm" href="/projects/new">New project</a>' : ''}</div>
-      <table><thead><tr><th>Project</th><th>WO</th><th>Name</th><th>Client</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>
+      <div class="tabs"><a class="chip ${closed ? '' : 'on'}" href="/">Active</a> <a class="chip ${closed ? 'on' : ''}" href="/?tab=closed">Closed</a></div>
+      ${closed ? `<form method="get" action="/" class="inline" style="margin:12px 0"><input type="hidden" name="tab" value="closed">
+        ${sel('owner', owners.map((o) => [o.id, o.name]), filters.owner, 'All owners')}
+        ${sel('contractor', contractors.map((c) => [c.id, c.name]), filters.contractor, 'All contractors')}
+        ${sel('year', years.map((y) => [y, y]), filters.year, 'All years')}
+        ${filters.owner || filters.contractor || filters.year ? '<a class="mute" href="/?tab=closed">Clear</a>' : ''}</form>` : ''}
+      <table style="margin-top:10px"><thead><tr><th>Project</th><th>WO</th><th>Name</th>${closed ? '<th>Owner</th><th>Contractors</th><th>Substantial completion</th><th>NAS</th>' : '<th>Owner / client</th><th>Status</th>'}</tr></thead><tbody>${rows}</tbody></table>
     </div>
     ${['owner', 'admin', 'reviewer'].includes(user.role) ? `<div class="card"><h2>Export data</h2>
-      <p class="mute">Every daily log and day-by-day quantity on every project, as spreadsheets for Excel or Power BI.</p>
+      <p class="mute">Every daily log and day-by-day quantity on every project, closed ones included, as spreadsheets for Excel or Power BI.</p>
       <a class="btn sm sec" href="/export/daily-logs.csv">Daily logs (CSV)</a> <a class="btn sm sec" href="/export/quantities.csv">Daily quantities (CSV)</a></div>` : ''}` });
 }
 
@@ -180,17 +190,21 @@ function totalsTable(totals, hasCurb = true) {
     : '<p class="mute">No design loaded yet.</p>';
 }
 
-function projectPage({ user, project: p, totals, mapsKey, owners = [] }) {
+function projectPage({ user, project: p, totals, mapsKey, owners = [], panel = '', msg = '' }) {
+  const closed = p.status === 'closed';
   return layout({ title: p.name, user, wide: true, body: `
+    ${msg ? `<div class="card"><p class="notice" style="margin:0">${esc(msg)}</p></div>` : ''}
     <div class="card">
       <div class="head"><div><h1>${esc(p.name)}</h1><div class="mute">Project ${esc(p.job_no)} · WO ${esc(p.wo_no || '—')}${p.client ? ' · ' + esc(p.client) : ''}${p.latitude != null ? ` · <a href="https://www.google.com/maps/search/?api=1&query=${Number(p.latitude)},${Number(p.longitude)}" target="_blank" rel="noopener">${Number(p.latitude).toFixed(5)}, ${Number(p.longitude).toFixed(5)}</a>` : ''}</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${totals.lines.length ? `<a class="btn sm" href="/projects/${p.id}/log">Daily log</a>` : ''}${canSetup(user) && totals.lines.length ? ` <a class="btn sm sec" href="/projects/${p.id}/schedule">Schedule</a>` : ''}
-      ${canSetup(user) ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div></div>
-      ${canSetup(user) ? `<form method="post" action="/projects/${p.id}/owner" class="inline" style="margin-top:12px">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">${totals.lines.length && !closed ? `<a class="btn sm" href="/projects/${p.id}/log">Daily log</a>` : ''}${canSetup(user) && totals.lines.length ? ` <a class="btn sm sec" href="/projects/${p.id}/schedule">Schedule</a>` : ''}
+      ${canSetup(user) && !closed ? `<a class="btn sm sec" href="/projects/${p.id}/setup">${totals.lines.length ? 'Replace design' : 'Load design from DXF'}</a>` : ''}</div></div>
+      ${closed ? '<p class="mute" style="margin-top:10px">Closed · read-only</p>' : ''}
+      ${canSetup(user) && !closed ? `<form method="post" action="/projects/${p.id}/owner" class="inline" style="margin-top:12px">
         <span class="mute">Owner (gets the weekly email)</span>
         <select name="owner_id"><option value="">— none —</option>${owners.map((o) => `<option value="${o.id}" ${o.id === p.owner_id ? 'selected' : ''}>${esc(o.name)}${o.company ? ' – ' + esc(o.company) : ''}</option>`).join('')}</select>
         <button class="btn sm sec">Save</button> <a class="mute" href="/owners">Manage owners</a> · <a class="mute" href="/export/quantities.csv?project=${p.id}">Export quantities</a></form>` : ''}
     </div>
+    ${panel}
     <div class="cols">
       <div class="card"><h2>Design quantities</h2>${totalsTable(totals, !!p.has_curb)}</div>
       <div class="card grow"><h2>Plan</h2><div id="plan" class="planbox" data-project="${p.id}"></div></div>

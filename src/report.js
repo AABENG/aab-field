@@ -38,7 +38,7 @@ function build(data, c, weekStart, opt = {}) {
   const header = (sub) => {
     pdf.rect(0, 0, pdf.W, 64, { fill: NAVY });
     pdf.text(M, 14, 'AAB ENGINEERING, LLC', { size: 8, bold: true, color: '#8fb4ff' });
-    pdf.text(M, 28, sub || 'Weekly Construction Observation Report', { size: 15, bold: true, color: '#ffffff' });
+    pdf.text(M, 28, sub || (opt.final ? 'FINAL REPORT – Construction Observation' : 'Weekly Construction Observation Report'), { size: 15, bold: true, color: '#ffffff' });
     pdf.text(pdf.W - M, 16, `Week of ${nice(weekStart)} – ${nice(weekEnd)}, ${weekEnd.slice(0, 4)}`, { size: 10, color: '#ffffff', align: 'right' });
     pdf.text(pdf.W - M, 32, `Report No. ${reportNo}`, { size: 9, color: '#b9c6e4', align: 'right' });
     if (opt.status !== 'approved' && opt.status !== 'sent') {
@@ -59,6 +59,11 @@ function build(data, c, weekStart, opt = {}) {
     pdf.text(bx + 85, y - 26, `${opt.approvedBy || ''}  ·  ${opt.approvedAt ? nice(opt.approvedAt) + ', ' + opt.approvedAt.slice(0, 4) : ''}`, { size: 8.5, color: INK, align: 'center' });
   }
   y += 8;
+  if (opt.final) {
+    pdf.rect(M, y - 4, CW, 18, { fill: '#e8f0ff' });
+    pdf.text(M + 8, y, `FINAL REPORT  ·  Substantial completion ${nice(opt.final.completion)}, ${opt.final.completion.slice(0, 4)}  ·  As-built exhibit and schedule summary attached`, { size: 8.5, bold: true, color: ACCENT });
+    y += 22;
+  }
 
   const section = (title) => {
     pdf.text(M, y, title.toUpperCase(), { size: 8.5, bold: true, color: ACCENT }); y += 13;
@@ -149,6 +154,11 @@ function build(data, c, weekStart, opt = {}) {
     y += pdf.para(M, y + 1, 'Behind/ahead is measured against each item’s own planned line. Forecasts use each item’s last four weeks’ pace; items not started carry the delay of the work before them.', CW, { size: 7.5, color: MUTE }) + 10;
   }
 
+  if (opt.final && opt.final.note) {
+    newPageIfNeeded(60);
+    section('Close-out note');
+    y += pdf.para(M, y, opt.final.note, CW, { size: 9.5, color: INK }) + 10;
+  }
   if (opt.notes) {
     newPageIfNeeded(60);
     section("Engineer's notes");
@@ -183,6 +193,10 @@ function build(data, c, weekStart, opt = {}) {
   // ---------- exhibit ----------
   exhibit(pdf, data, c, weekStart, weekEnd, header);
   if (sc) schedulePage(pdf, data, sc, weekStart, weekEnd, header);
+  if (opt.final) {
+    asBuiltPage(pdf, data, c, header, opt.final.asBuilt);
+    scheduleSummaryPage(pdf, header, opt.final.summary);
+  }
 
   // ---------- photos ----------
   const photos = weekLogs.flatMap((l) => l.photos.map((ph) => ({ ...ph, date: l.date })));
@@ -446,4 +460,171 @@ function at(l, s) { s = Math.max(0, Math.min(l.len, s)); let i = 1; while (i < l
 function sub(l, a, b) { prep(l); const o = [at(l, a)]; for (let i = 0; i < l.cum.length; i++) if (l.cum[i] > a && l.cum[i] < b) o.push(l.pts[i]); o.push(at(l, b)); return o; }
 function lighten(hex) { const n = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)); return '#' + n.map((v) => Math.round(v + (255 - v) * 0.6).toString(16).padStart(2, '0')).join(''); }
 
-module.exports = { build, mondayOf, addDays };
+
+// ---------- close-out pages ----------
+// The design's extent in drawing feet (lines + clearing limits), padded.
+function frame(data) {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  const grow = (pts) => pts.forEach(([x, yy]) => { if (x < x0) x0 = x; if (x > x1) x1 = x; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; });
+  data.lines.forEach((l) => grow(l.pts)); (data.limits || []).forEach(grow);
+  if (!Number.isFinite(x0)) return null;
+  const pad = 0.05 * Math.max(x1 - x0, y1 - y0);
+  return [x0 - pad, y0 - pad, x1 + pad, y1 + pad];
+}
+// Box the as-built map fills on a landscape page under a header of height `top`.
+const AB_LEGEND = 98;
+const asBuiltBox = (top) => ({ x: 40, y: top + 6, w: 792 - 80, h: 612 - top - 6 - AB_LEGEND });
+
+// Everything installed through `asOf`, on the aerial when there is one.
+function asBuiltPage(pdf, data, c, header, ab) {
+  pdf.addPage(792, 612);
+  const top = header('As-built exhibit');
+  const p = data.project, hasCurb = !!p.has_curb, asOf = ab.asOf;
+  const bb = frame(data);
+  if (!bb) return;
+  let box = asBuiltBox(top);
+  let T;
+  const air = ab.aerial;
+  for (const l of data.lines) prep(l);
+  if (air) {
+    // fit the image's shape inside the box, centered
+    const ia = air.W / air.H, ba = box.w / box.h;
+    const w = ia >= ba ? box.w : box.h * ia, h = ia >= ba ? box.w / ia : box.h;
+    box = { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h };
+    T = (pts) => pts.map(([x, yy]) => { const [fx, fy] = air.toFrac(x, yy); return [box.x + fx * box.w, box.y + fy * box.h]; });
+  } else {
+    const [x0, y0, x1, y1] = bb, sc = Math.min(box.w / (x1 - x0), box.h / (y1 - y0));
+    const ox = box.x + (box.w - (x1 - x0) * sc) / 2, oy = box.y + (box.h - (y1 - y0) * sc) / 2;
+    T = (pts) => pts.map(([x, yy]) => [ox + (x - x0) * sc, oy + (y1 - yy) * sc]);
+  }
+  const [[ax, ay], [bx, by]] = T([[bb[0], bb[1]], [bb[2], bb[1]]]);
+  const s = Math.hypot(bx - ax, by - ay) / (bb[2] - bb[0]); // page units per foot
+
+  const covered = (id, track) => P.union(data.progress.filter((r) => r.line_id === id && r.track === track && r.date <= asOf).map((r) => [r.from, r.to]));
+  const cased = (pts, col, w) => { if (air) pdf.path(pts, { stroke: '#ffffff', width: w + 2.4, opacity: 0.9 }); pdf.path(pts, { stroke: col, width: w }); };
+  pdf.clipRect(box.x, box.y, box.w, box.h, () => {
+    if (air) pdf.image(air.jpeg, box.x, box.y, box.w, box.h, 'cover');
+    else {
+      let bg = {}; try { bg = JSON.parse(p.background_json || '{}'); } catch (e) { /* none */ }
+      for (const [k, col, w] of [['other', '#eceff4', 0.3], ['lots', '#d7dde7', 0.4], ['row', '#b9c2d2', 0.5], ['curb', '#a6b0c2', 0.45]]) for (const pts of bg[k] || []) if (Array.isArray(pts) && pts.length > 1 && Array.isArray(pts[0])) pdf.path(T(pts), { stroke: col, width: w });
+    }
+    if (data.limits && data.limits.length) data.limits.forEach((r) => pdf.path(T(r), { stroke: air ? '#ffe680' : '#8a7000', width: 1, dash: [6, 3], close: true }));
+    // streets: subgrade, curb, paving installed along the centerlines
+    const tracks = hasCurb ? [['sg', 6], ['cb', 3.6], ['pv', 1.8]] : [['sg', 6], ['pv', 2.2]];
+    for (const [t, w] of tracks) for (const l of data.lines) if (l.item === 'cl') covered(l.id, t).forEach(([a, b]) => cased(T(sub(l, a, b)), COLOR[t], w));
+    // utilities: installed solid, anything not installed dashed
+    for (const k of ['sd', 'ss', 'wl']) for (const l of data.lines) if (l.item === k) {
+      const done = covered(l.id, 'line');
+      P.minus([[0, l.len]], done).forEach(([a, b]) => pdf.path(T(sub(l, a, b)), { stroke: air ? '#ffffff' : COLOR[k], width: 1, dash: [3, 2.5] }));
+      done.forEach(([a, b]) => cased(T(sub(l, a, b)), COLOR[k], 2.4));
+    }
+    for (const st of data.structures) {
+      const col = COLOR[KIND_ITEM[st.kind]] || INK, [[x, yy]] = T([[st.x, st.y]]), d = c.structDay.get(st.id);
+      if (d && d <= asOf) pdf.circle(x, yy, 3, { fill: col, stroke: '#ffffff', width: 0.8 });
+      else pdf.circle(x, yy, 2.8, { fill: '#ffffff', stroke: col, width: 1 });
+    }
+  });
+  pdf.rect(box.x, box.y, box.w, box.h, { stroke: LINE, width: 0.8 });
+  // north arrow + scale bar (on a white chip so they read over imagery)
+  const nx = box.x + box.w - 22, ny = box.y + 10;
+  pdf.rect(nx - 10, ny - 4, 20, 40, { fill: '#ffffff', opacity: 0.85 });
+  pdf.path([[nx, ny + 22], [nx, ny]], { stroke: INK, width: 1 });
+  pdf.path([[nx - 4, ny + 7], [nx, ny], [nx + 4, ny + 7]], { stroke: INK, width: 1 });
+  pdf.text(nx, ny + 24, 'N', { size: 8, bold: true, align: 'center' });
+  const target = 120 / s, mag = Math.pow(10, Math.floor(Math.log10(target)));
+  const ft = [1, 2, 5, 10].map((m) => m * mag).filter((v) => v <= target).pop() || mag;
+  const sx = box.x + 12, sy = box.y + box.h - 18;
+  pdf.rect(sx - 6, sy - 15, ft * s + 30, 26, { fill: '#ffffff', opacity: 0.85 });
+  pdf.rect(sx, sy, ft * s / 2, 4, { fill: INK }); pdf.rect(sx + ft * s / 2, sy, ft * s / 2, 4, { fill: '#ffffff', stroke: INK, width: 0.6 });
+  pdf.rect(sx, sy, ft * s, 4, { stroke: INK, width: 0.6 });
+  pdf.text(sx, sy - 11, '0', { size: 7 }); pdf.text(sx + ft * s, sy - 11, `${Math.round(ft).toLocaleString('en-US')} ft`, { size: 7, align: 'center' });
+  if (air) {
+    const t = `Imagery ©${new Date().getFullYear()} Google`;
+    pdf.rect(box.x + box.w - pdf.width(t, 6.5) - 10, box.y + box.h - 13, pdf.width(t, 6.5) + 10, 13, { fill: '#ffffff', opacity: 0.8 });
+    pdf.text(box.x + box.w - 5, box.y + box.h - 10, t, { size: 6.5, color: INK, align: 'right' });
+  }
+
+  // legend: what's installed vs. the design
+  const { toDate } = Q.summarize(c, '1900-01-01', asOf);
+  const f0 = (v) => Math.round(v || 0).toLocaleString('en-US');
+  const rows = [];
+  for (const [k, name, kinds] of UTIL) if (c.design[k]) {
+    rows.push({ col: COLOR[k], w: 2.4, label: name, q: `${f0(toDate[k])} of ${f0(c.design[k])} LF` });
+    for (const kd of kinds) if (c.design[kd]) rows.push({ col: COLOR[k], dot: true, label: KIND_LABEL[kd][0].toUpperCase() + KIND_LABEL[kd].slice(1), q: `${f0(toDate[kd])} of ${f0(c.design[kd])} EA` });
+  }
+  for (const [t] of hasCurb ? [['sg'], ['cb'], ['pv']] : [['sg'], ['pv']]) if (c.design[t]) rows.push({ col: COLOR[t], w: t === 'sg' ? 6 : t === 'cb' ? 3.6 : 2, label: SNAME[t], q: `${f0(toDate[t])} of ${f0(c.design[t])} LF` });
+  let ly = box.y + box.h + 12;
+  pdf.text(40, ly, `INSTALLED THROUGH ${nice(asOf).toUpperCase()}, ${asOf.slice(0, 4)}`, { size: 8, bold: true, color: ACCENT });
+  pdf.text(792 - 40, ly, 'Solid = installed   ·   Dashed / open circle = not installed', { size: 7.5, color: MUTE, align: 'right' });
+  ly += 14;
+  const per = Math.max(3, Math.ceil(rows.length / 4));
+  rows.forEach((r, i) => {
+    const x = 40 + Math.floor(i / per) * 180, yy = ly + (i % per) * 12;
+    if (r.dot) pdf.circle(x + 12, yy + 3.5, 2.8, { fill: r.col, stroke: '#ffffff', width: 0.6 });
+    else pdf.line(x, yy + 3.5, x + 24, yy + 3.5, { stroke: r.col, width: Math.min(r.w, 5) });
+    pdf.text(x + 32, yy, r.label, { size: 8, color: INK });
+    pdf.text(x + 170, yy, r.q, { size: 8, color: INK, align: 'right' });
+  });
+}
+
+// Planned vs. actual for each tracked item, in calendar days.
+function scheduleSummaryPage(pdf, header, sum) {
+  pdf.addPage(792, 612);
+  let y = header('Schedule summary') + 10;
+  const nd = (d) => (d ? `${md(d)}/${d.slice(2, 4)}` : '—');
+  const days = (a, b) => (a && b ? R_d2n(b) - R_d2n(a) + 1 : null);
+  const v = (n) => (n == null ? '—' : n === 0 ? '0' : (n > 0 ? '+' : '-') + Math.abs(n));
+  const kv = [
+    ['Notice to proceed', nd(sum.ntp)], ['Contract completion', sum.contractEnd ? `${nd(sum.contractEnd)} (${sum.days} calendar days)` : '—'],
+    ['Substantial completion', nd(sum.completion)],
+    ['Contract time used', sum.ntp && sum.completion ? `${days(sum.ntp, sum.completion)}${sum.days ? ` of ${sum.days}` : ''} calendar days` : '—'],
+    ['Finish vs. contract', sum.contractEnd && sum.completion ? (() => { const d = R_d2n(sum.completion) - R_d2n(sum.contractEnd); return d > 0 ? `${d} days late` : d < 0 ? `${-d} days early` : 'on the contract date'; })() : '—'],
+  ];
+  kv.forEach(([a, b], i) => { const x = 40 + (i % 3) * 240, yy = y + Math.floor(i / 3) * 15; pdf.text(x, yy, a, { size: 8.5, color: MUTE }); pdf.text(x + 108, yy, b, { size: 9, bold: a === 'Finish vs. contract', color: INK }); });
+  y += 40;
+  const cols = [40, 150, 262, 312, 362, 404, 456, 508, 552, 600, 646];
+  const hd = ['Item', 'Contractor', 'Plan start', 'Plan finish', 'Plan days', 'Actual start', 'Actual finish', 'Actual days', 'Start var.', 'Finish var.', 'Installed / design'];
+  pdf.rect(36, y - 4, 792 - 72, 16, { fill: '#eef2f8' });
+  hd.forEach((h, i) => pdf.text(cols[i], y, h, { size: 7.5, bold: true, color: MUTE }));
+  y += 18;
+  for (const it of sum.items) {
+    const pS = it.plan && it.plan.start, pF = it.plan && it.plan.finish, aS = it.start, aF = it.finish;
+    const sv = pS && aS ? R_d2n(aS) - R_d2n(pS) : null, fv = pF && aF ? R_d2n(aF) - R_d2n(pF) : null;
+    pdf.rect(cols[0], y + 1, 6, 6, { fill: COLOR[it.item] || ACCENT });
+    pdf.text(cols[0] + 11, y, it.name, { size: 9, color: INK });
+    pdf.text(cols[1], y, it.contractor || '—', { size: 8, color: INK });
+    [nd(pS), nd(pF), days(pS, pF) ?? '—', nd(aS), nd(aF), days(aS, aF) ?? '—'].forEach((t, i) => pdf.text(cols[2 + i], y, String(t), { size: 9, color: INK }));
+    pdf.text(cols[8], y, v(sv), { size: 9, color: sv > 0 ? '#b42318' : INK });
+    pdf.text(cols[9], y, v(fv), { size: 9, bold: fv > 0, color: fv > 0 ? '#b42318' : INK });
+    pdf.text(cols[10], y, it.qty || '—', { size: 8.5, color: INK });
+    pdf.line(36, y + 13, 792 - 36, y + 13, { stroke: '#eef1f6', width: 0.6 });
+    y += 19;
+  }
+  y += 8;
+  y += pdf.para(40, y, 'Days are calendar days, counting the first and last day. Variance is actual minus planned: + is later than planned, - is earlier. Actual start and finish are the first and last days the work was logged (earthwork: the LiDAR flight that reached 100%).', 712, { size: 7.5, color: MUTE });
+  if (sum.note) { y += 12; pdf.text(40, y, 'CLOSE-OUT NOTE', { size: 8, bold: true, color: ACCENT }); y += 13; pdf.para(40, y, sum.note, 712, { size: 9, color: INK }); }
+}
+
+// Stand-alone close-out PDFs (saved alongside the final report and copied to the NAS).
+function standalone(data, title, draw) {
+  const p = data.project, pdf = new PDF();
+  const header = (sub) => {
+    pdf.rect(0, 0, pdf.W, 64, { fill: NAVY });
+    pdf.text(40, 14, 'AAB ENGINEERING, LLC', { size: 8, bold: true, color: '#8fb4ff' });
+    pdf.text(40, 28, sub, { size: 15, bold: true, color: '#ffffff' });
+    pdf.text(pdf.W - 40, 16, p.name, { size: 10, color: '#ffffff', align: 'right' });
+    pdf.text(pdf.W - 40, 32, `Project ${p.job_no}${p.wo_no ? '  ·  WO ' + p.wo_no : ''}  ·  FINAL`, { size: 9, color: '#b9c6e4', align: 'right' });
+    return 80;
+  };
+  draw(pdf, header);
+  pdf.pages.forEach((pg, i) => {
+    pdf.page = pg;
+    pdf.text(40, pg.h - 28, `${p.name}  ·  Project ${p.job_no}${p.wo_no ? '  ·  WO ' + p.wo_no : ''}  ·  ${title}`, { size: 7.5, color: MUTE });
+    pdf.text(pg.w - 40, pg.h - 28, `Page ${i + 1} of ${pdf.pages.length}`, { size: 7.5, color: MUTE, align: 'right' });
+  });
+  return pdf.build({ title: `${p.name} – ${title}` });
+}
+const buildAsBuilt = (data, c, ab) => standalone(data, 'As-built exhibit', (pdf, header) => asBuiltPage(pdf, data, c, header, ab));
+const buildSummary = (data, sum) => standalone(data, 'Schedule summary', (pdf, header) => scheduleSummaryPage(pdf, header, sum));
+
+module.exports = { build, mondayOf, addDays, frame, asBuiltBox, buildAsBuilt, buildSummary };

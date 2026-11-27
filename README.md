@@ -76,6 +76,12 @@ Approved reports and that week's photos are copied to the QNAP every night by `t
 
 App setting: `ARCHIVE_KEY` (a long random string; it goes in the script too). The script's header has the QNAP install steps.
 
+After a run with no failures the script posts back the files it holds (`/archive/confirm`); a closed project whose files are all there is marked **Archived**.
+
+## Project close-out
+
+Joe or Alan clicks **Close project** on the project page and enters the substantial completion date. Items short of the design quantity are listed and need a close-out note. The week holding that date becomes the **FINAL REPORT**, with the as-built exhibit (on the aerial) and the schedule summary (planned vs. actual by item, calendar days) added, and goes to Joe for approval. Approving it emails the owner as usual, saves the as-built and schedule summary as their own PDFs, closes the project (off the CO list, out of the Sunday run, read-only), and adds its dates to contractor history. Joe or Alan can reopen a closed project with a reason; closes, archives and reopens are logged on the project page. Closed projects are on the **Closed** tab of the project list, filtered by owner, contractor and year.
+
 ## Schedule
 
 Each project's **Schedule** page (owner, admin, reviewer):
@@ -102,6 +108,7 @@ The weekly report gets a schedule summary on page 1 (contract time used, whole-s
 | `SESSION_SECRET` | 32+ random characters |
 | `NODE_ENV` | `production` |
 | `GOOGLE_MAPS_KEY` | Google Maps JavaScript API key, restricted to `cm.aabeng.com/*` (optional: turns on the map picker and satellite layer) |
+| `STATIC_MAPS_KEY` | Server-side Google key with the **Maps Static API** enabled, restricted by the server's IP rather than a website (optional: the aerial under the close-out as-built exhibit; without it the exhibit is drawn on the plain base) |
 
 `DB_HOST` defaults to `localhost`, which is right on cPanel.
 

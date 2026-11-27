@@ -39,6 +39,7 @@ function siteTime(dateStr, timeStr) {
 router.get('/projects/:id/log', auth.requireLogin, fieldRoles, async (req, res, next) => {
   const p = await project(req.params.id);
   if (!p) return next();
+  if (p.status === 'closed') return res.redirect(req.session.user.role === 'co' ? '/' : `/projects/${p.id}`);
   res.send(views.fieldPage({ user: req.session.user, project: p, mapsKey: config.mapsKey }));
 });
 

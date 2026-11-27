@@ -67,7 +67,8 @@ async function weekReports(we) {
 async function prepareWeek(ws) {
   const we = weekEndOf(ws);
   const [ps] = await pool.query(
-    `SELECT DISTINCT d.project_id FROM daily_logs d JOIN projects p ON p.id = d.project_id WHERE p.status <> 'closed' AND d.log_date BETWEEN ? AND ?`, [ws, we]);
+    `SELECT DISTINCT d.project_id FROM daily_logs d JOIN projects p ON p.id = d.project_id
+      WHERE (p.status NOT IN ('closed','closing') OR (p.status = 'closing' AND ? <= p.substantial_completion)) AND d.log_date BETWEEN ? AND ?`, [ws, ws, we]);
   for (const { project_id: id } of ps) await pool.query('INSERT IGNORE INTO weekly_reports (project_id, week_ending, status) VALUES (?, ?, "review")', [id, we]);
   return weekReports(we);
 }
@@ -82,9 +83,17 @@ async function pdfFor(r) {
   return R.build(data, c, ws, {
     status: r.status, notes: r.notes, approvedBy: r.approver, approvedAt: r.approved_at ? dstr(r.approved_at) : null, uploadDir: config.uploadDir,
     schedule: S ? { S, st: Sch.status(S, weekEndOf(ws)) } : null,
+    final: r.is_final ? await require('./closeout').finalOpt(r.project_id, data, c) : null,
   });
 }
-const pdfName = (r) => `${r.job_no} ${r.name.replace(/[^\w .-]+/g, '')} - week ending ${r.we}.pdf`;
+const pdfName = (r) => `${r.job_no} ${r.name.replace(/[^\w .-]+/g, '')} - ${r.is_final ? 'FINAL REPORT - ' : ''}week ending ${r.we}.pdf`;
+// The summary lines for one report, with the final-report line first.
+async function summaryFor(r, ws) {
+  const data = await Q.load(r.project_id), c = Q.compute(data), S = await Sch.load(r.project_id);
+  const lines = weekSummary(data, c, ws, S && { S, st: Sch.status(S, weekEndOf(ws)) });
+  if (r.is_final) lines.unshift(`FINAL REPORT – substantial completion ${nice(dstr(data.project.substantial_completion))}, ${dstr(data.project.substantial_completion).slice(0, 4)}. As-built exhibit and schedule summary attached.`);
+  return lines;
+}
 
 // ---------- emails ----------
 async function reviewers() {
@@ -92,7 +101,7 @@ async function reviewers() {
   return u;
 }
 
-async function sendReviewRequest(ws, rows) {
+async function sendReviewRequest(ws, rows, o = {}) {
   const rv = await reviewers();
   if (!rv.length) throw new Error('No active reviewer account (Joe) to send to');
   const we = weekEndOf(ws), link = `${config.publicUrl}/reviews/${we}`;
@@ -103,15 +112,16 @@ async function sendReviewRequest(ws, rows) {
   for (const g of groups) {
     text += `\n${g.label}\n`; html += `<h3 style="margin:18px 0 6px">${esc(g.label)}</h3>`;
     for (const r of g.rows) {
-      const data = await Q.load(r.project_id), c = Q.compute(data), S = await Sch.load(r.project_id), lines = weekSummary(data, c, ws, S && { S, st: Sch.status(S, weekEndOf(ws)) });
+      const lines = await summaryFor(r, ws);
       text += `  ${r.name} (${r.job_no})\n` + lines.map((l) => `    - ${l}\n`).join('');
       html += `<p style="margin:6px 0 2px"><b>${esc(r.name)}</b> <span style="color:#667">${esc(r.job_no)}${r.wo_no ? ' · WO ' + esc(r.wo_no) : ''}</span></p><ul style="margin:0 0 8px">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>`;
       attachments.push({ name: pdfName(r), data: await pdfFor(r) });
     }
   }
   html += '<p style="color:#667">When every report for an owner is approved, that owner gets one email with all of their reports.</p>';
-  await mail.send({ to: rv.map((u) => u.email), subject: `Weekly reports ready for review – week of ${nice(ws)}`, text, html, attachments });
-  await pool.query('UPDATE weekly_reports SET review_sent_at = NOW() WHERE week_ending = ? AND review_sent_at IS NULL', [we]);
+  const subject = o.final ? `FINAL report ready for review – ${rows.map((r) => r.name).join(', ')}` : `Weekly reports ready for review – week of ${nice(ws)}`;
+  await mail.send({ to: rv.map((u) => u.email), subject, text, html, attachments });
+  await pool.query('UPDATE weekly_reports SET review_sent_at = NOW() WHERE id IN (?) AND review_sent_at IS NULL', [rows.map((r) => r.id)]);
   return rv.map((u) => u.email);
 }
 
@@ -138,7 +148,7 @@ async function sendOwner(ownerId, we) {
   let html = `<p>${esc(owner)},</p><p>Attached are AAB Engineering's construction observation reports for the week of <b>${nice(ws)} – ${nice(we)}</b>. Here's a quick summary of the work:</p>`;
   const attachments = [];
   for (const r of rows) {
-    const data = await Q.load(r.project_id), c = Q.compute(data), S = await Sch.load(r.project_id), lines = weekSummary(data, c, ws, S && { S, st: Sch.status(S, weekEndOf(ws)) });
+    const lines = await summaryFor(r, ws);
     text += `\n${r.name} (Project ${r.job_no}${r.wo_no ? ', WO ' + r.wo_no : ''})\n` + lines.map((l) => `  - ${l}\n`).join('') + (r.notes ? `  Notes: ${r.notes}\n` : '');
     html += `<p style="margin:14px 0 2px"><b>${esc(r.name)}</b> <span style="color:#667">Project ${esc(r.job_no)}${r.wo_no ? ' · WO ' + esc(r.wo_no) : ''}</span></p><ul style="margin:0 0 6px">${lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul>${r.notes ? `<p style="margin:0 0 8px"><i>${esc(r.notes)}</i></p>` : ''}`;
     attachments.push({ name: pdfName(r), data: await pdfFor(r) });
@@ -185,7 +195,7 @@ router.get('/reviews/:we', auth.requireLogin, canView, async (req, res, next) =>
   const groups = groupByOwner(rows);
   const [weeks] = await pool.query("SELECT DATE_FORMAT(week_ending, '%Y-%m-%d') we, COUNT(*) n, SUM(status IN ('approved','sent')) ok FROM weekly_reports GROUP BY week_ending ORDER BY week_ending DESC LIMIT 12");
   const sum = new Map();
-  for (const r of rows) { const data = await Q.load(r.project_id), S = await Sch.load(r.project_id); sum.set(r.id, weekSummary(data, Q.compute(data), ws, S && { S, st: Sch.status(S, we) })); }
+  for (const r of rows) sum.set(r.id, await summaryFor(r, ws));
   const tag = (s) => `<span class="tag ${s === 'sent' ? 'active' : s === 'approved' ? 'active' : 'setup'}">${s === 'review' || s === 'draft' ? 'to review' : s}</span>`;
   const body = `
     <div class="card"><div class="head"><div><h1>Weekly reports</h1><div class="mute">Week of ${nice(ws)} – ${nice(we)}, ${we.slice(0, 4)}</div></div>
@@ -203,12 +213,12 @@ router.get('/reviews/:we', auth.requireLogin, canView, async (req, res, next) =>
           : g.ownerId ? `<span class="mute">${g.rows.filter((r) => r.status === 'approved' || r.status === 'sent').length} of ${g.rows.length} approved</span>` : ''}
         ${approver && g.ownerId && allOk ? `<form method="post" action="/reviews/${we}/owners/${g.ownerId}/send" class="inline" style="margin-left:8px"><button class="btn sm sec">${sent ? 'Send again' : 'Send now'}</button></form>` : ''}</div></div>
         ${g.rows.map((r) => `<div class="rrow">
-          <div class="rhead"><b>${esc(r.name)}</b> <span class="mute">${esc(r.job_no)}${r.wo_no ? ' · WO ' + esc(r.wo_no) : ''}</span> ${tag(r.status)}
+          <div class="rhead"><b>${esc(r.name)}</b> <span class="mute">${esc(r.job_no)}${r.wo_no ? ' · WO ' + esc(r.wo_no) : ''}</span> ${r.is_final ? '<span class="tag closed">FINAL REPORT</span> ' : ''}${tag(r.status)}
             <a class="btn sm sec" href="/reports/${r.id}.pdf" target="_blank" rel="noopener">${r.status === 'approved' || r.status === 'sent' ? 'Report PDF' : 'Preview PDF'}</a></div>
           <ul class="sumlist">${sum.get(r.id).map((l) => `<li>${esc(l)}</li>`).join('')}</ul>
           ${approver && (r.status === 'review' || r.status === 'draft') ? `<form method="post" action="/reports/${r.id}/approve">
               <label>Notes for the owner <span class="mute">(optional; printed on the report and in the email)</span><textarea name="notes" rows="2">${esc(r.notes || '')}</textarea></label>
-              <button class="btn sm">Approve</button></form>`
+              <button class="btn sm">${r.is_final ? 'Approve final report (closes the project)' : 'Approve'}</button></form>`
             : r.notes ? `<p class="mute">Notes: ${esc(r.notes)}</p>` : ''}
           ${approver && r.status === 'approved' ? `<form method="post" action="/reports/${r.id}/reopen" class="inline"><button class="btn sm sec">Reopen</button></form> <span class="mute">Approved by ${esc(r.approver || '')}</span>` : ''}
           ${r.status === 'sent' ? `<span class="mute">Approved by ${esc(r.approver || '')} · sent to ${esc(r.sent_to || '')}</span>` : ''}
@@ -243,6 +253,12 @@ router.post('/reports/:id/approve', auth.requireLogin, canApprove, async (req, r
   fs.writeFileSync(path.join(reportDir(), file), buf);
   await pool.query('UPDATE weekly_reports SET pdf_file = ? WHERE id = ?', [file, r.id]);
   let msg = `Approved ${r.name}.`;
+  if (r.is_final) {
+    try {
+      const f = await require('./closeout').finalize(r.id, req.session.user.id);
+      msg += ` This was the FINAL report, so ${r.name} is now closed and read-only${f && !f.aerial ? ' (the as-built exhibit was drawn without the aerial: no STATIC_MAPS_KEY or the image couldn’t be fetched)' : ''}.`;
+    } catch (e) { msg += ` Closing the project failed: ${e.message}`; }
+  }
   if (r.owner_id) {
     const group = (await weekReports(we)).filter((x) => x.owner_id === r.owner_id);
     if (group.every((x) => x.status === 'approved' || x.status === 'sent') && group.some((x) => x.status === 'approved')) {
@@ -350,4 +366,4 @@ router.get('/export/quantities.csv', auth.requireLogin, canView, async (req, res
   res.set('Content-Type', 'text/csv').set('Content-Disposition', `attachment; filename="aab-quantities-${todayStr()}.csv"`).send(csv(out));
 });
 
-module.exports = { router, weekLocked, lastWeekStart, weekSummary, prepareWeek };
+module.exports = { router, weekLocked, lastWeekStart, weekSummary, prepareWeek, weekReports, sendReviewRequest };

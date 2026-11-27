@@ -20,6 +20,9 @@ module.exports = {
   // Google Maps JavaScript API key (restricted to cm.aabeng.com). Optional:
   // without it the map picker and satellite layer are hidden.
   mapsKey: env.GOOGLE_MAPS_KEY || '',
+  // Server-side Google key for the as-built exhibit's aerial image (Maps Static API).
+  // The browser key above is limited to cm.aabeng.com pages, so the server needs its own.
+  staticMapsKey: env.STATIC_MAPS_KEY || '',
   // Photos live outside the code folder so a Git update never touches them.
   // Address used in emailed links.
   publicUrl: (env.PUBLIC_URL || 'https://cm.aabeng.com').replace(/\/$/, ''),

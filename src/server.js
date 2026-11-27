@@ -107,10 +107,31 @@ function buildApp(store) {
   // ---- signed-in pages ----
   app.get('/', auth.requireLogin, async (req, res) => {
     const co = req.session.user.role === 'co';
-    const [list] = await pool.query(`SELECT id, job_no, wo_no, name, client, status FROM projects ${co ? "WHERE status = 'active'" : ''} ORDER BY status, job_no`);
-    res.send(co ? views.coHomePage({ user: req.session.user, projects: list }) : views.homePage({ user: req.session.user, projects: list }));
+    if (co) {
+      const [list] = await pool.query("SELECT id, job_no, wo_no, name, client, status FROM projects WHERE status IN ('active','closing') ORDER BY job_no");
+      return res.send(views.coHomePage({ user: req.session.user, projects: list }));
+    }
+    // Office: Active tab, or the Closed tab filtered by owner, contractor and year.
+    const q = req.query || {}, closedTab = q.tab === 'closed';
+    const where = [closedTab ? "p.status = 'closed'" : "p.status <> 'closed'"], args = [];
+    if (closedTab && /^\d+$/.test(q.owner || '')) { where.push('p.owner_id = ?'); args.push(+q.owner); }
+    if (closedTab && /^\d+$/.test(q.contractor || '')) { where.push('? IN (p.grading_contractor_id, p.utility_contractor_id, p.paving_contractor_id)'); args.push(+q.contractor); }
+    if (closedTab && /^\d{4}$/.test(q.year || '')) { where.push('YEAR(p.substantial_completion) = ?'); args.push(+q.year); }
+    const [list] = await pool.query(`SELECT p.id, p.job_no, p.wo_no, p.name, p.client, p.status, o.name owner,
+        DATE_FORMAT(p.substantial_completion, '%Y-%m-%d') completion, p.archived_at IS NOT NULL archived,
+        CONCAT_WS(', ', NULLIF(cg.name, ''), IF(cu.id <=> cg.id, NULL, cu.name), IF(cp.id <=> cu.id OR cp.id <=> cg.id, NULL, cp.name)) contractors
+      FROM projects p LEFT JOIN owners o ON o.id = p.owner_id LEFT JOIN contractors cg ON cg.id = p.grading_contractor_id
+      LEFT JOIN contractors cu ON cu.id = p.utility_contractor_id LEFT JOIN contractors cp ON cp.id = p.paving_contractor_id
+      WHERE ${where.join(' AND ')} ORDER BY ${closedTab ? 'p.substantial_completion DESC,' : 'p.status,'} p.job_no`, args);
+    const [owners] = await pool.query('SELECT id, name FROM owners ORDER BY name');
+    const [contractors] = await pool.query('SELECT id, name FROM contractors ORDER BY name');
+    const [years] = await pool.query("SELECT DISTINCT YEAR(substantial_completion) y FROM projects WHERE status = 'closed' AND substantial_completion IS NOT NULL ORDER BY y DESC");
+    res.send(views.homePage({ user: req.session.user, projects: list, tab: closedTab ? 'closed' : 'active', filters: { owner: q.owner, contractor: q.contractor, year: q.year }, owners, contractors, years: years.map((r) => r.y) }));
   });
   app.get('/api/me', auth.requireLogin, (req, res) => res.json(req.session.user));
+  const closeout = require('./closeout');
+  app.use(closeout.blockClosed); // closed projects are read-only
+  app.use(closeout.router);
   app.use(projects);
   app.use(logs.router);
   app.use(require('./reports').router);

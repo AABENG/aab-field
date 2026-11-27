@@ -34,5 +34,19 @@ while IFS='|' read -r rel src bytes; do
     rm -f "$out.part"; fail=$((fail + 1)); log "ERROR $rel"
   fi
 done < "$TMP"
+# Tell the app which files are safely here, so closed projects can be marked Archived.
+if [ "$fail" -eq 0 ]; then
+  OK="$DEST/CM Archive/.confirm.$$"; : > "$OK"
+  while IFS='|' read -r rel src bytes; do
+    [ -z "$rel" ] && continue
+    [ "$(stat -c %s "$DEST/$rel" 2>/dev/null)" = "$bytes" ] && echo "$rel|$bytes" >> "$OK"
+  done < "$TMP"
+  if ! res=$(curl -fsS --retry 3 -H "X-Archive-Key: $KEY" -H "Content-Type: text/plain" --data-binary @"$OK" "$URL/archive/confirm"); then
+    log "ERROR could not confirm the copy with $URL"
+  else
+    case "$res" in *'"archived":[]'*) ;; *) log "archived: $res" ;; esac
+  fi
+  rm -f "$OK"
+fi
 rm -f "$TMP"
 log "done: $new new or updated, $fail failed"

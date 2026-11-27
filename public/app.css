@@ -70,6 +70,9 @@ label.chk input{width:auto;margin:0;accent-color:var(--accent)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:0 16px;align-items:end}
 .tag{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;padding:4px 9px;border-radius:999px;border:1px solid var(--line2);color:var(--mute)}
 .tag.active{border-color:var(--ok);color:var(--ok)}.tag.setup{border-color:var(--warn);color:var(--warn)}
+.tag.closed{border-color:var(--accent);color:var(--accent)}.tag.closing{border-color:var(--warn);color:var(--warn)}
+.tabs{display:flex;gap:8px;margin-top:6px}.tabs .chip{text-decoration:none}
+tr.warnrow td{background:rgba(229,72,77,.07)}
 .head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px}
 .head h1{margin:0}
 .cols{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap}
