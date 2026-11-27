@@ -146,16 +146,17 @@ function build(data, c, weekStart, opt = {}) {
       pdf.text(sc0[4], y, it.forecast ? (it.state === 'done' ? `finished ${md(it.forecast)}` : nd(it.forecast)) : '—', { size: 9, color: it.state === 'not started' ? MUTE : INK });
       y += 14;
     }
-    pdf.text(M, y + 1, 'Behind/ahead is measured against each item’s own planned line. Forecasts use each item’s last four weeks’ pace; items not started carry the delay of the work before them.', { size: 7.5, color: MUTE });
-    y += 18;
+    y += pdf.para(M, y + 1, 'Behind/ahead is measured against each item’s own planned line. Forecasts use each item’s last four weeks’ pace; items not started carry the delay of the work before them.', CW, { size: 7.5, color: MUTE }) + 10;
   }
 
   if (opt.notes) {
+    newPageIfNeeded(60);
     section("Engineer's notes");
     y += pdf.para(M, y, opt.notes, CW, { size: 9.5, color: INK }) + 10;
   }
 
-  // daily log
+  // daily log: always starts page 2, so page 1 is the summary
+  pdf.addPage(); y = header() + 4;
   section('Daily log');
   const dc = [M, M + 58, M + 200, M + 236, M + 380], dw = [54, 136, 32, 140, M + CW - (M + 380)];
   const dayHead = () => {
