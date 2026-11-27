@@ -132,8 +132,10 @@ class PDF {
     let img = this.images.find((i) => i.buf === buf);
     if (!img) { img = { buf, ...info, name: 'Im' + (this.images.length + 1) }; this.images.push(img); }
     this.page.imgs.add(img.name);
+    // 'cover' fills and crops, 'contain' fits inside, 'stretch' fills exactly (georeferenced images)
     const s = fit === 'cover' ? Math.max(w / info.w, h / info.h) : Math.min(w / info.w, h / info.h);
-    const dw = info.w * s, dh = info.h * s, dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+    let dw = info.w * s, dh = info.h * s, dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+    if (fit === 'stretch') { dw = w; dh = h; dx = x; dy = y; }
     this.clipRect(x, y, w, h, () => this.op(`q ${f(dw)} 0 0 ${f(dh)} ${f(dx)} ${f(this.Y(dy + dh))} cm /${img.name} Do Q`));
     return true;
   }

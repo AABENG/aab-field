@@ -482,29 +482,21 @@ function asBuiltPage(pdf, data, c, header, ab) {
   const p = data.project, hasCurb = !!p.has_curb, asOf = ab.asOf;
   const bb = frame(data);
   if (!bb) return;
-  let box = asBuiltBox(top);
-  let T;
-  const air = ab.aerial;
+  const box = asBuiltBox(top);
+  const air = ab.ortho; // the as-built flight: { jpeg, place: { x0, y0, px, py, w, h }, flown }
   for (const l of data.lines) prep(l);
-  if (air) {
-    // fit the image's shape inside the box, centered
-    const ia = air.W / air.H, ba = box.w / box.h;
-    const w = ia >= ba ? box.w : box.h * ia, h = ia >= ba ? box.w / ia : box.h;
-    box = { x: box.x + (box.w - w) / 2, y: box.y + (box.h - h) / 2, w, h };
-    T = (pts) => pts.map(([x, yy]) => { const [fx, fy] = air.toFrac(x, yy); return [box.x + fx * box.w, box.y + fy * box.h]; });
-  } else {
-    const [x0, y0, x1, y1] = bb, sc = Math.min(box.w / (x1 - x0), box.h / (y1 - y0));
-    const ox = box.x + (box.w - (x1 - x0) * sc) / 2, oy = box.y + (box.h - (y1 - y0) * sc) / 2;
-    T = (pts) => pts.map(([x, yy]) => [ox + (x - x0) * sc, oy + (y1 - yy) * sc]);
-  }
-  const [[ax, ay], [bx, by]] = T([[bb[0], bb[1]], [bb[2], bb[1]]]);
-  const s = Math.hypot(bx - ax, by - ay) / (bb[2] - bb[0]); // page units per foot
-
+  const [x0, y0, x1, y1] = bb, sc = Math.min(box.w / (x1 - x0), box.h / (y1 - y0));
+  const ox = box.x + (box.w - (x1 - x0) * sc) / 2, oy = box.y + (box.h - (y1 - y0) * sc) / 2;
+  const T = (pts) => pts.map(([x, yy]) => [ox + (x - x0) * sc, oy + (y1 - yy) * sc]);
+  const s = sc; // page units per foot
   const covered = (id, track) => P.union(data.progress.filter((r) => r.line_id === id && r.track === track && r.date <= asOf).map((r) => [r.from, r.to]));
   const cased = (pts, col, w) => { if (air) pdf.path(pts, { stroke: '#ffffff', width: w + 2.4, opacity: 0.9 }); pdf.path(pts, { stroke: col, width: w }); };
   pdf.clipRect(box.x, box.y, box.w, box.h, () => {
-    if (air) pdf.image(air.jpeg, box.x, box.y, box.w, box.h, 'cover');
-    else {
+    if (air) {
+      pdf.rect(box.x, box.y, box.w, box.h, { fill: '#e9ecf1' });
+      const q = air.place, [[ix, iy], [jx, jy]] = T([[q.x0, q.y0], [q.x0 + q.w * q.px, q.y0 + q.h * q.py]]);
+      pdf.image(air.jpeg, ix, iy, jx - ix, jy - iy, 'stretch');
+    } else {
       let bg = {}; try { bg = JSON.parse(p.background_json || '{}'); } catch (e) { /* none */ }
       for (const [k, col, w] of [['other', '#eceff4', 0.3], ['lots', '#d7dde7', 0.4], ['row', '#b9c2d2', 0.5], ['curb', '#a6b0c2', 0.45]]) for (const pts of bg[k] || []) if (Array.isArray(pts) && pts.length > 1 && Array.isArray(pts[0])) pdf.path(T(pts), { stroke: col, width: w });
     }
@@ -539,7 +531,7 @@ function asBuiltPage(pdf, data, c, header, ab) {
   pdf.rect(sx, sy, ft * s, 4, { stroke: INK, width: 0.6 });
   pdf.text(sx, sy - 11, '0', { size: 7 }); pdf.text(sx + ft * s, sy - 11, `${Math.round(ft).toLocaleString('en-US')} ft`, { size: 7, align: 'center' });
   if (air) {
-    const t = `Imagery ©${new Date().getFullYear()} Google`;
+    const t = `Aerial: AAB Engineering as-built flight${air.flown ? ', ' + nice(air.flown) + ', ' + air.flown.slice(0, 4) : ''}`;
     pdf.rect(box.x + box.w - pdf.width(t, 6.5) - 10, box.y + box.h - 13, pdf.width(t, 6.5) + 10, 13, { fill: '#ffffff', opacity: 0.8 });
     pdf.text(box.x + box.w - 5, box.y + box.h - 10, t, { size: 6.5, color: INK, align: 'right' });
   }

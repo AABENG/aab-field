@@ -80,7 +80,9 @@ After a run with no failures the script posts back the files it holds (`/archive
 
 ## Project close-out
 
-Joe or Alan clicks **Close project** on the project page and enters the substantial completion date. Items short of the design quantity are listed and need a close-out note. The week holding that date becomes the **FINAL REPORT**, with the as-built exhibit (on the aerial) and the schedule summary (planned vs. actual by item, calendar days) added, and goes to Joe for approval. Approving it emails the owner as usual, saves the as-built and schedule summary as their own PDFs, closes the project (off the CO list, out of the Sunday run, read-only), and adds its dates to contractor history. Joe or Alan can reopen a closed project with a reason; closes, archives and reopens are logged on the project page. Closed projects are on the **Closed** tab of the project list, filtered by owner, contractor and year.
+Joe or Alan clicks **Close project** on the project page and enters the substantial completion date. Items short of the design quantity are listed and need a close-out note. The week holding that date becomes the **FINAL REPORT**, with the as-built exhibit and the schedule summary (planned vs. actual by item, calendar days) added, and goes to Joe for approval. Approving it emails the owner as usual, saves the as-built and schedule summary as their own PDFs, closes the project (off the CO list, out of the Sunday run, read-only), and adds its dates to contractor history. Joe or Alan can reopen a closed project with a reason; closes, archives and reopens are logged on the project page. Closed projects are on the **Closed** tab of the project list, filtered by owner, contractor and year.
+
+**As-built flight.** The aerial under the as-built exhibit is AAB's own final flight, not Google. On the project page (before Joe approves the final report), upload the orthomosaic as a **JPEG or PNG plus its world file** (.jgw/.pgw), north-up, in the plans' coordinates (Oklahoma state plane, US ft). The browser crops it to the site and shrinks it to 3,000 px before uploading, and the world file places it exactly on the design. If the flight software only writes GeoTIFF, convert it once in QGIS (Raster → Conversion → Translate, format JPEG, creation option `WORLDFILE=YES`; use Warp first if it isn't in state plane feet). A cropped copy goes to the NAS with the close-out files.
 
 ## Schedule
 
@@ -108,7 +110,6 @@ The weekly report gets a schedule summary on page 1 (contract time used, whole-s
 | `SESSION_SECRET` | 32+ random characters |
 | `NODE_ENV` | `production` |
 | `GOOGLE_MAPS_KEY` | Google Maps JavaScript API key, restricted to `cm.aabeng.com/*` (optional: turns on the map picker and satellite layer) |
-| `STATIC_MAPS_KEY` | Server-side Google key with the **Maps Static API** enabled, restricted by the server's IP rather than a website (optional: the aerial under the close-out as-built exhibit; without it the exhibit is drawn on the plain base) |
 
 `DB_HOST` defaults to `localhost`, which is right on cPanel.
 

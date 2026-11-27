@@ -256,7 +256,7 @@ router.post('/reports/:id/approve', auth.requireLogin, canApprove, async (req, r
   if (r.is_final) {
     try {
       const f = await require('./closeout').finalize(r.id, req.session.user.id);
-      msg += ` This was the FINAL report, so ${r.name} is now closed and read-only${f && !f.aerial ? ' (the as-built exhibit was drawn without the aerial: no STATIC_MAPS_KEY or the image couldn’t be fetched)' : ''}.`;
+      msg += ` This was the FINAL report, so ${r.name} is now closed and read-only${f && !f.aerial ? ' (no as-built flight was uploaded, so the as-built exhibit has no aerial)' : ''}.`;
     } catch (e) { msg += ` Closing the project failed: ${e.message}`; }
   }
   if (r.owner_id) {
