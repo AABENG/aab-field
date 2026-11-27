@@ -243,7 +243,11 @@
     ['check_in', 'crew', 'weather', 'rain_in', 'notes'].forEach((id) => { if (document.activeElement !== $(id)) $(id).value = L[id] ?? ''; });
     $('wxsrc').textContent = L.weather_edited ? '● Edited by CO' : L.weather || L.rain_in !== '' ? '● Conditions: National Weather Service · Rain: Iowa Environmental Mesonet (NOAA radar + gauges)' : '';
     $('wxsrc').className = 'auto' + (L.weather_edited ? ' edit' : '');
-    [...$('equip').children].forEach((b) => b.classList.toggle('on', L.equipment.includes(b.textContent)));
+    // Equipment: the standard list, then anything typed under "Other" on this job, then the Other button.
+    const custom = [];
+    for (const x of logs.values()) for (const e of x.equipment || []) if (!EQUIP.includes(e) && !custom.some((c) => c.toLowerCase() === e.toLowerCase())) custom.push(e);
+    $('equip').innerHTML = EQUIP.concat(custom).map((n) => `<button type="button" class="chip ${L.equipment.includes(n) ? 'on' : ''}">${esc(n)}</button>`).join('') +
+      `<button type="button" class="chip" data-other="1">+ Other</button>`;
     [...$('work').children].forEach((b) => b.classList.toggle('on', L.work.includes(b.textContent)));
     $('no_crew').classList.toggle('on', L.no_crew); $('no_crew').textContent = L.no_crew ? 'No crew on site ✓' : 'Mark no crew on site';
     // items + stats
@@ -424,7 +428,24 @@
       $(id).innerHTML = list.map((n) => `<button type="button" class="chip">${esc(n)}</button>`).join('');
       $(id).onclick = (e) => { const b = e.target.closest('.chip'); if (!b) return; const a = log(S.date)[field]; const i = a.indexOf(b.textContent); if (i < 0) a.push(b.textContent); else a.splice(i, 1); changed(); };
     };
-    chipBox('equip', EQUIP, 'equipment'); chipBox('work', WORK.filter((w) => w !== 'Curb' || P.has_curb), 'work');
+    $('equip').onclick = (e) => {
+      const b = e.target.closest('.chip'); if (!b) return;
+      if (b.dataset.other) { $('equipOther').classList.remove('hide'); $('equipOtherIn').focus(); return; }
+      const a = log(S.date).equipment, i = a.indexOf(b.textContent); if (i < 0) a.push(b.textContent); else a.splice(i, 1); changed();
+    };
+    const addOther = () => {
+      const v = $('equipOtherIn').value.replace(/\s+/g, ' ').trim().slice(0, 40);
+      if (v) {
+        const a = log(S.date).equipment, std = EQUIP.find((x) => x.toLowerCase() === v.toLowerCase());
+        const name = std || [...logs.values()].flatMap((x) => x.equipment || []).find((x) => x.toLowerCase() === v.toLowerCase()) || v;
+        if (!a.includes(name)) a.push(name);
+        changed();
+      }
+      $('equipOtherIn').value = ''; $('equipOther').classList.add('hide');
+    };
+    $('equipOtherAdd').onclick = addOther;
+    $('equipOtherIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addOther(); } if (e.key === 'Escape') { $('equipOtherIn').value = ''; $('equipOther').classList.add('hide'); } });
+    chipBox('work', WORK.filter((w) => w !== 'Curb' || P.has_curb), 'work');
     ['check_in', 'crew', 'weather', 'rain_in', 'notes'].forEach((id) => $(id).addEventListener('input', (e) => {
       const L = log(S.date); L[id] = e.target.value; if (id === 'weather' || id === 'rain_in') L.weather_edited = true; changed();
     }));
@@ -451,7 +472,7 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
       // keep a copy of this page and its data so it opens with no signal next time
-      navigator.serviceWorker.ready.then(() => caches.open('aabfield-v4')).then((c) =>
+      navigator.serviceWorker.ready.then(() => caches.open('aabfield-v5')).then((c) =>
         c.addAll([location.pathname, `/api/projects/${projectId}/design`, `/api/projects/${projectId}/field`])).catch(() => {});
     }
     S.week = monday(S.date);

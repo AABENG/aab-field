@@ -258,7 +258,8 @@ function fieldPage({ user, project: p, mapsKey }) {
         <label>24-hr rain (in)<input type="text" id="rain_in" inputmode="decimal"></label>
         <div><span class="lbl">No crew today</span><button class="chip full" id="no_crew" type="button">Mark no crew on site</button></div>
       </div></div>
-    <div class="card"><h2>Equipment</h2><div class="chips" id="equip"></div></div>
+    <div class="card"><h2>Equipment</h2><div class="chips" id="equip"></div>
+      <div id="equipOther" class="hide" style="display:flex;gap:8px;margin-top:10px"><input id="equipOtherIn" maxlength="40" placeholder="e.g. Scraper, 2 dump trucks, crane" autocomplete="off" style="flex:1"><button type="button" class="btn sm" id="equipOtherAdd">Add</button></div></div>
     <div class="card"><h2>Work performed</h2><div class="chips" id="work"></div>
       <label style="margin-top:14px">Notes<textarea id="notes" placeholder="What the crew did today, where, any issues…"></textarea></label></div>
     <div class="card"><h2>Progress today</h2>
