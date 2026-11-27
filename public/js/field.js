@@ -451,7 +451,7 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
       // keep a copy of this page and its data so it opens with no signal next time
-      navigator.serviceWorker.ready.then(() => caches.open('aabfield-v3')).then((c) =>
+      navigator.serviceWorker.ready.then(() => caches.open('aabfield-v4')).then((c) =>
         c.addAll([location.pathname, `/api/projects/${projectId}/design`, `/api/projects/${projectId}/field`])).catch(() => {});
     }
     S.week = monday(S.date);

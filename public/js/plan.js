@@ -175,6 +175,7 @@
           const P1 = pr.fromLatLngToDivPixel(ll(b[2], b[1]));
           const P2 = pr.fromLatLngToDivPixel(ll(b[0], b[3]));
           const m = affine(b, P0, P1, P2);
+          this.m = m;
           this.g.setAttribute('transform', `matrix(${m.join(' ')})`);
           this.view.extra(1 / Math.hypot(m[0], m[1]));
           this.view.structures(4.5 / Math.hypot(m[0], m[1]));
@@ -182,7 +183,47 @@
         onRemove() { this.svg.remove(); }
       }
       overlayRef = new DesignOverlay(); overlayRef.setMap(gmap);
+      wireSatPointer();
       if (lastFix) placeGpsOnMap();
+    }
+    // Highlighting on the satellite view: a press on a design line is the
+    // highlighter's; anything else falls through to the map, which pans.
+    function satPt(e) {
+      const m = overlayRef && overlayRef.m;
+      if (!m || !overlayRef.svg) return null;
+      const r = overlayRef.svg.getBoundingClientRect();
+      const px = e.clientX - r.left, py = e.clientY - r.top;
+      const [a, bb, c, d, tx, ty] = m, det = a * d - bb * c;
+      const u = (d * (px - tx) - c * (py - ty)) / det, v = (a * (py - ty) - bb * (px - tx)) / det;
+      return { pt: { x: u, y: -v }, f: 1 / Math.hypot(a, bb) };
+    }
+    function wireSatPointer() {
+      let active = null, start = null;
+      const stop = (e) => { if (active !== null) { e.stopPropagation(); e.preventDefault(); } };
+      mapDiv.addEventListener('pointerdown', (e) => {
+        moved = false; start = { x: e.clientX, y: e.clientY };
+        const q = satPt(e);
+        if (q && opts.pointer && opts.pointer.down(q.pt, q.f)) {
+          active = e.pointerId; e.stopPropagation(); e.preventDefault();
+          try { mapDiv.setPointerCapture(e.pointerId); } catch (_) {}
+          gmap.setOptions({ gestureHandling: 'none', draggable: false });
+        }
+      }, true);
+      mapDiv.addEventListener('pointermove', (e) => {
+        if (active === null) { if (start && Math.abs(e.clientX - start.x) + Math.abs(e.clientY - start.y) > 3) moved = true; return; }
+        e.stopPropagation(); e.preventDefault();
+        const q = satPt(e); if (q) opts.pointer.move(q.pt, q.f);
+      }, true);
+      const end = (e) => {
+        if (active !== null) {
+          e.stopPropagation(); e.preventDefault(); active = null; opts.pointer.up();
+          gmap.setOptions({ gestureHandling: 'greedy', draggable: true });
+        } else if (start && !moved && opts.tap && e.type === 'pointerup') { const q = satPt(e); if (q) opts.tap(q.pt, q.f); }
+        start = null; setTimeout(() => { moved = false; }, 0);
+      };
+      mapDiv.addEventListener('pointerup', end, true);
+      mapDiv.addEventListener('pointercancel', end, true);
+      ['mousedown', 'mousemove', 'touchstart', 'touchmove', 'click'].forEach((t) => mapDiv.addEventListener(t, stop, { capture: true, passive: false }));
     }
     function showPlain() { mapDiv.classList.add('hide'); svg.classList.remove('hide'); redrawPlain(); }
     function placeGpsOnMap() {
